@@ -2,7 +2,8 @@
 set -e
 
 # Source ROS 2 and workspace
-source /opt/ros/humble/setup.bash
-source /ros_ws/install/setup.bash || true
+echo "source /opt/ros/humble/setup.bash" >> ~/.bashrc
+echo "source /ros_ws/install/setup.bash || true" >> ~/.bashrc
+source ~/.bashrc
 
 exec "$@"
