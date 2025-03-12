@@ -1,0 +1,2 @@
+# Virual environment documentation
+This file contains the documentation about the virtual environment installation. We use a virual environment to make sure that we keep track of all the dependancies. Finally, we will create a dockerfile (or container) which can be used for deployment. 
