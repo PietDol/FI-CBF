@@ -3,6 +3,6 @@ set -e
 
 # Source ROS 2 and workspace
 source /opt/ros/humble/setup.bash
-source /ros_ws/install/setup.bash
+source /ros_ws/install/setup.bash || true
 
 exec "$@"
