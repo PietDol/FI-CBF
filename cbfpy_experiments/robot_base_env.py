@@ -6,8 +6,14 @@ import numpy as np
 import pygame
 
 from cbfpy.envs.base_env import BaseEnv
+from cbfpy import CBF, CLFCBF
 
 from obstacles import RectangleObstacle
+from robot_base import RobotBase
+from visualization import VisualizeCBF
+from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
+
+import jax.numpy as jnp
 
 class RobotBaseEnv(BaseEnv):
     # Constants for the environment
@@ -52,13 +58,18 @@ class RobotBaseEnv(BaseEnv):
         pygame.display.set_caption("Robot base experiment")
 
         # add robot base
-        self.robot_base = pygame.Surface(
-            (RobotBaseEnv.ROBOT_WIDTH_PX, RobotBaseEnv.ROBOT_HEIGHT_PX)
+        self.robot_base  = RobotBase(
+            width=self.ROBOT_WIDTH_M,
+            height=self.ROBOT_HEIGHT_M,
+            px_per_meter=self.PIXELS_PER_METER,
+            screen_width=self.SCREEN_WIDTH,
+            screen_height=self.SCREEN_HEIGHT,
+            pos_center_start=self.pos_current,
+            vel_center_start=self.vel_current
         )
-        self.robot_base.fill(RobotBaseEnv.RED)
 
         # add obstacle
-        self.obstacle = RectangleObstacle(1, 12, np.array([3, 0]), self.PIXELS_PER_METER, self.SCREEN_WIDTH, self.SCREEN_HEIGHT)
+        self.obstacle = RectangleObstacle(1, 8, np.array([3, 1.0]), self.PIXELS_PER_METER, self.SCREEN_WIDTH, self.SCREEN_HEIGHT)
         self.obstacle_drawing = self.obstacle.pygame_drawing()
 
         # position robot base and goal in display
@@ -74,15 +85,9 @@ class RobotBaseEnv(BaseEnv):
         # helper function to convert the [x, y] position in m to px
         px = pos * self.PIXELS_PER_METER + np.array([self.SCREEN_WIDTH / 2, self.SCREEN_HEIGHT / 2])
         return px.astype(int)
-    
-    def get_robot_px(self):
-        px =  self.position_to_pixels(
-            self.pos_current + 0.5 * np.array([-self.ROBOT_WIDTH_M, self.ROBOT_HEIGHT_M])
-        )
-        return px[0], px[1]
 
     def get_state(self):
-        return self.pos_current, self.vel_current
+        return np.concatenate((self.robot_base.position, self.robot_base.velocity))
     
     def get_desired_state(self):
         return self.pos_des
@@ -90,8 +95,15 @@ class RobotBaseEnv(BaseEnv):
     def apply_control(self, u) -> None:
         # just add the control input to the 
         u = np.clip(u, self.u_min_max[0], self.u_min_max[1])
-        self.vel_current += u
-        self.pos_current += self.vel_current * self.dt
+        vel_current = self.robot_base.velocity + u
+        pos_current = self.robot_base.position + vel_current * self.dt
+        self.robot_base.velocity = vel_current
+        self.robot_base.position = pos_current
+
+        # check collision
+        collision = self.obstacle.check_collision(self.robot_base)
+        if collision:
+            print('Collision')
     
     def step(self):
         # Handle events
@@ -108,6 +120,12 @@ class RobotBaseEnv(BaseEnv):
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
                     return
+                
+        # check for collision
+        if self.check_goal_reached():
+            print('Goal reached')
+            self.running = False
+            return
         
         # Clear the screen
         self.screen.fill(RobotBaseEnv.WHITE)   
@@ -128,7 +146,8 @@ class RobotBaseEnv(BaseEnv):
         pygame.draw.rect(self.screen, RobotBaseEnv.BLACK, self.obstacle_drawing)
 
         # draw the robot
-        self.screen.blit(self.robot_base, self.get_robot_px())
+        robot_base_drawing = self.robot_base.pygame_drawing()
+        pygame.draw.rect(self.screen, RobotBaseEnv.RED, robot_base_drawing)
 
         # Draw the goal as a blue dot
         pygame.draw.circle(self.screen, RobotBaseEnv.BLUE, (self.goal_x, self.goal_y), 5)
@@ -138,7 +157,12 @@ class RobotBaseEnv(BaseEnv):
 
         # Cap the frame rate
         pygame.time.Clock().tick(self.fps)
-
+    
+    def check_goal_reached(self, tolerance=0.01):
+        # function to check if the goal is reached
+        distance = np.linalg.norm(np.array(self.robot_base.position) - np.array(self.pos_des))
+        return distance <= tolerance
+    
 def pd_controller(pos_des, pos_current, vel_current, Kp=0.5, Kd=0.3):
     """
     PD controller to drive the robot towards the goal with less overshoot.
@@ -159,16 +183,63 @@ def pd_controller(pos_des, pos_current, vel_current, Kp=0.5, Kd=0.3):
     return u
 
 def main():
+    mode = 0 # 0: PD + CBF, 1: CLF + CBF
     pos_goal = np.array([6, 0])
     env = RobotBaseEnv(pos_goal)
+    if mode == 0:
+        config = RobotBaseCBFConfig(env.obstacle, env.robot_base)
+        cbf = CBF.from_config(config)
+    elif mode == 1:
+        config = RobotBaseCLFCBFConfig(env.obstacle, env.robot_base, pos_goal)
+        clf_cbf = CLFCBF.from_config(config)
+    else:
+        raise f'Incorrect mode!'
+    visualizer = VisualizeCBF()
 
     while env.running:
-        pos_current, vel_current = env.get_state()
+        current_state = env.get_state()
         pos_des = env.get_desired_state()
-        u = pd_controller(pos_des, pos_current, vel_current)
+        if mode == 0:
+            nominal_control = pd_controller(pos_des, current_state[:2], current_state[2:])
+        elif mode == 1:
+            pos_des = np.concatenate((pos_des, np.zeros(2)))
+            nominal_control = clf_cbf.controller(current_state, pos_des)
+
+        # safe data for visualizer
+        h = config.h_1(current_state)
+        h = config.alpha(h)
+        visualizer.h.append(np.array(h))
+        visualizer.robot_pos.append(current_state[:2])
+
+        # apply safety filter
+        if mode == 0:
+            u = cbf.safety_filter(current_state, nominal_control)
+        elif mode == 1:
+            u = nominal_control
+
+        # safe control data for visualizer
+        visualizer.u_cbf.append(u)
+        visualizer.u_nominal.append(nominal_control)
+        
+        # change environment
         env.apply_control(u)
         env.step()
+    
+    # add last information for visualizer
+    visualizer.u_cbf.append(u)
+    visualizer.u_nominal.append(nominal_control)
+    h = config.h_1(current_state)
+    h = config.alpha(h)
+    visualizer.h.append(np.array(h))
+    visualizer.robot_pos.append(current_state[:2])
 
+    # ensure Pygame window is fully closed before proceeding
+    pygame.quit()
+
+    # generate drawings
+    visualizer.plot_control_input()
+    visualizer.plot_cbf()
+    visualizer.plot_robot_trajectory()
 
 if __name__ == "__main__":
     main()

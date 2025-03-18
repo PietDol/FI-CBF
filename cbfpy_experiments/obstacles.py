@@ -1,6 +1,7 @@
 import numpy as np
 from abc import ABC, abstractmethod
 import pygame
+from robot_base import RobotBase
 
 class Obstacle(ABC):
     """ Abstract class to create all different kinds of obstacls
@@ -75,7 +76,20 @@ class RectangleObstacle(Obstacle):
         drawing = pygame.Rect(pos_x, pos_y, self.width_px, self.height_px)
         return drawing
 
-    
     def generate_cbfs(self):
         # TODO: make function to generate the cbfs for this obstacle
         pass
+
+    def check_collision(self, robot: RobotBase):
+        # function to check if the robot is in collision with this obstacle
+        # get the centers of the robot and the obstacle
+        cx_robot, cy_robot = robot.position 
+        cx_obstacle, cy_obstacle = self.pos_center
+
+        # Check x-axis overlap
+        x_overlap = abs(cx_robot - cx_obstacle) <= (robot.width / 2) + (self.width / 2)
+
+        # Check y-axis overlap
+        y_overlap = abs(cy_robot - cy_obstacle) <= (robot.height / 2) + (self.height / 2)
+
+        return x_overlap and y_overlap
