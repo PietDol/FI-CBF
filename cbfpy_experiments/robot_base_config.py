@@ -3,9 +3,10 @@ import jax.numpy as jnp
 import numpy as np
 
 class RobotBaseCBFConfig(CBFConfig):
-    def __init__(self, obstacles, robot):
+    def __init__(self, obstacles, robot, safety_margin=0.5):
         self.obstacles = obstacles
         self.robot = robot
+        self.safety_margin = safety_margin
         super().__init__(n=4, m=2)
     
     def f(self, z):
@@ -35,7 +36,7 @@ class RobotBaseCBFConfig(CBFConfig):
             normal_vector = vector_closest_to_robot / norm  # add small term to prevent division by zero
 
             # calculate value for h
-            h_value = jnp.dot(normal_vector, vector_closest_to_robot) - self.robot.radius
+            h_value = jnp.dot(normal_vector, vector_closest_to_robot) - self.robot.radius - self.safety_margin
             h_values.append(h_value)
         return jnp.array(h_values)
     
