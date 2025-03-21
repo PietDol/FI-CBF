@@ -2,6 +2,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 import pygame
 from robot_base import RobotBase
+import jax.numpy as jnp
 
 class Obstacle(ABC):
     """ Abstract class to create all different kinds of obstacls
@@ -38,13 +39,13 @@ class Obstacle(ABC):
 
 class RectangleObstacle(Obstacle):
     # object for obstacles
-    def __init__(self, width, height, pos_center, px_per_meter, screen_width, screen_height):
+    def __init__(self, width, height, pos_center):
         self.width = width                  # in m
         self.height = height                # in m
         self.pos_center = pos_center        # in m shape (2,)
-        self.px_per_meter = px_per_meter    # in m
-        self.screen_width = screen_width    # in px
-        self.screen_height = screen_height  # in px
+        self.px_per_meter = None           # in m
+        self.screen_width = None           # in px
+        self.screen_height = None          # in px
     
     @property
     def width_px(self):
