@@ -61,7 +61,7 @@ class VisualizeCBF:
         # Show the figure
         plt.show()
     
-    def plot_robot_trajectory(self):
+    def plot_robot_trajectory(self, ):
         # function to show the trajectory of the robot
         robot_pos = np.array(self.robot_pos)
 

@@ -41,6 +41,7 @@ class RobotBaseEnv(BaseEnv):
         pos_des, 
         pos_start=np.zeros(2), 
         vel_start=np.zeros(2),
+        pos_obstacle = np.array([10000, 10000]),
         u_min_max=np.array([-np.inf, np.inf])
     ):
         self.pos_des = pos_des          # desired position [x, y] in m
@@ -69,7 +70,7 @@ class RobotBaseEnv(BaseEnv):
         )
 
         # add obstacle
-        self.obstacle = RectangleObstacle(1, 8, np.array([3, 1.0]), self.PIXELS_PER_METER, self.SCREEN_WIDTH, self.SCREEN_HEIGHT)
+        self.obstacle = RectangleObstacle(1, 4, pos_obstacle, self.PIXELS_PER_METER, self.SCREEN_WIDTH, self.SCREEN_HEIGHT)
         self.obstacle_drawing = self.obstacle.pygame_drawing()
 
         # position robot base and goal in display
@@ -184,8 +185,9 @@ def pd_controller(pos_des, pos_current, vel_current, Kp=0.5, Kd=0.3):
 
 def main():
     mode = 0 # 0: PD + CBF, 1: CLF + CBF
-    pos_goal = np.array([6, 0])
-    env = RobotBaseEnv(pos_goal)
+    pos_goal = np.array([7, 0])
+    pos_obs = np.array([0, 2.01])
+    env = RobotBaseEnv(pos_goal, pos_start=np.array([-7, 0]), pos_obstacle=pos_obs)
     if mode == 0:
         config = RobotBaseCBFConfig(env.obstacle, env.robot_base)
         cbf = CBF.from_config(config)

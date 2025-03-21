@@ -5,6 +5,7 @@ class RobotBase:
     def __init__(self, width, height, px_per_meter, screen_width, screen_height, pos_center_start, vel_center_start):
         self.width = width                  # in m
         self.height = height                # in m
+        self.radius = max(width, height) / 2    # in m (radius of circle that the robot uses)
         self.pos_center = pos_center_start  # in m shape (2,)
         self.vel_center = vel_center_start  # in m/s shape (2,)
         self.px_per_meter = px_per_meter    # in m

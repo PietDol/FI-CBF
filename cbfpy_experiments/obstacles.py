@@ -93,3 +93,11 @@ class RectangleObstacle(Obstacle):
         y_overlap = abs(cy_robot - cy_obstacle) <= (robot.height / 2) + (self.height / 2)
 
         return x_overlap and y_overlap
+    
+    def find_closest_point_to_obstacle(self, robot: RobotBase):
+        # function to find the closest point between the obstacles edge and the robot
+        cx_robot, cy_robot = robot.position
+        cx_obstacle, cy_obstacle = self.pos_center
+        closest_x = np.clip(cx_robot, cx_obstacle - (self.width / 2), cx_obstacle + (self.width / 2))
+        closest_y = np.clip(cy_robot, cy_obstacle - (self.height / 2), cy_obstacle + (self.height / 2))
+        return np.array([closest_x, closest_y])
