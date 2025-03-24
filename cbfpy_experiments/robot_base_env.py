@@ -161,14 +161,14 @@ def main():
         height=1.5,
         env_config=env_config,
         pos_goal=pos_goal,
-        pos_center_start=np.array([-7, 0])
+        pos_center_start=np.array([-7, 1])
     )
 
     # create obstacles
     obstacles = [
-        RectangleObstacle(1, 4, np.array([0, 0.0]), env_config, robot_base),
-        # RectangleObstacle(3, 1, np.array([2, 2.5]), env_config, robot_base),
-        # RectangleObstacle(3, 1, np.array([2, -2.5]), env_config, robot_base)
+        RectangleObstacle(1, 6, np.array([0, 0.0]), env_config, robot_base),
+        RectangleObstacle(3, 1, np.array([2, 2.5]), env_config, robot_base),
+        RectangleObstacle(3, 1, np.array([2, -2.5]), env_config, robot_base)
     ]
 
     # create environment
@@ -177,10 +177,10 @@ def main():
     # create the cbf configes 
     mode = 0 # 0: PD + CBF, 1: CLF + CBF
     if mode == 0:
-        config = RobotBaseCBFConfig(env.obstacles, env.robot_base)
+        config = RobotBaseCBFConfig(obstacles, robot_base)
         cbf = CBF.from_config(config)
     elif mode == 1:
-        config = RobotBaseCLFCBFConfig(env.obstacles, env.robot_base, pos_goal)
+        config = RobotBaseCLFCBFConfig(obstacles, robot_base)
         clf_cbf = CLFCBF.from_config(config)
     else:
         raise f'Incorrect mode!'
