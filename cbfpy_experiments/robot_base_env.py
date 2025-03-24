@@ -12,73 +12,38 @@ from obstacles import RectangleObstacle
 from robot_base import RobotBase
 from visualization import VisualizeCBF
 from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
+from env_config import EnvConfig
 
 import jax.numpy as jnp
 
 class RobotBaseEnv(BaseEnv):
-    # Constants for the environment
-    PIXELS_PER_METER = 50 * np.array([1, -1])
-
-    # Screen dimensions
-    SCREEN_WIDTH = 800
-    SCREEN_HEIGHT = 800
-
-    # Colors
-    WHITE = (255, 255, 255)
-    GRAY = (100, 100, 100)
-    BLACK = (0, 0, 0)
-    BLUE = (0, 0, 255)
-    RED = (255, 0, 0)
-
-    # Robot properties
-    ROBOT_WIDTH_M = 1
-    ROBOT_HEIGHT_M = 1.5
-    ROBOT_WIDTH_PX = PIXELS_PER_METER[0] * ROBOT_WIDTH_M
-    ROBOT_HEIGHT_PX = PIXELS_PER_METER[0] * ROBOT_HEIGHT_M
-
     def __init__(
         self, 
-        pos_des,
-        obstacles, 
-        pos_start=np.zeros(2), 
-        vel_start=np.zeros(2),
-        # pos_obstacle = np.array([10000, 10000]),
+        env_config: EnvConfig,
+        robot_base: RobotBase,
+        obstacles: list, 
         u_min_max=np.array([-np.inf, np.inf])
     ):
-        self.pos_des = pos_des          # desired position [x, y] in m
-        self.pos_current = pos_start    # current position [x, y] in m
-        self.vel_current = vel_start    # current velocity [vx, vy] in m/s
-        self.u_min_max = u_min_max      # min max velocity input
+        self.u_min_max = u_min_max
+        self.env_config = env_config
 
         # set up the environment
         # Initialize Pygame
         pygame.init()
         # Set up the display
         self.screen = pygame.display.set_mode(
-            (RobotBaseEnv.SCREEN_WIDTH, RobotBaseEnv.SCREEN_HEIGHT)
+            (self.env_config.screen_width, self.env_config.screen_height)
         )
         pygame.display.set_caption("Robot base experiment")
 
         # add robot base
-        self.robot_base  = RobotBase(
-            width=self.ROBOT_WIDTH_M,
-            height=self.ROBOT_HEIGHT_M,
-            px_per_meter=self.PIXELS_PER_METER,
-            screen_width=self.SCREEN_WIDTH,
-            screen_height=self.SCREEN_HEIGHT,
-            pos_center_start=self.pos_current,
-            vel_center_start=self.vel_current
-        )
+        self.robot_base  = robot_base
 
         # add obstacles
         self.obstacles = obstacles
-        for obstacle in self.obstacles:
-            obstacle.px_per_meter = self.PIXELS_PER_METER
-            obstacle.screen_height = self.SCREEN_HEIGHT
-            obstacle.screen_width = self.SCREEN_WIDTH
 
         # position robot base and goal in display
-        self.goal_x, self.goal_y = self.position_to_pixels(self.pos_des)
+        self.goal_x, self.goal_y = self.position_to_pixels(self.robot_base.pos_goal)
 
         # some other pygame parameters
         self.font = pygame.font.SysFont("Arial", 20)
@@ -88,18 +53,18 @@ class RobotBaseEnv(BaseEnv):
 
     def position_to_pixels(self, pos):
         # helper function to convert the [x, y] position in m to px
-        px = pos * self.PIXELS_PER_METER + np.array([self.SCREEN_WIDTH / 2, self.SCREEN_HEIGHT / 2])
+        px = pos * self.env_config.pixels_per_meter + np.array([self.env_config.screen_width / 2, self.env_config.screen_height / 2])
         return px.astype(int)
 
     def get_state(self):
         return np.concatenate((self.robot_base.position, self.robot_base.velocity))
     
     def get_desired_state(self):
-        return self.pos_des
+        return self.robot_base.pos_goal
     
     def apply_control(self, u) -> None:
         # just add the control input to the 
-        u = np.clip(u, self.u_min_max[0], self.u_min_max[1])
+        # u = np.clip(u, self.u_min_max[0], self.u_min_max[1])
         vel_current = self.robot_base.velocity + u
         pos_current = self.robot_base.position + vel_current * self.dt
         self.robot_base.velocity = vel_current
@@ -119,56 +84,48 @@ class RobotBaseEnv(BaseEnv):
                 self.running = False
                 return
             elif event.type == pygame.KEYDOWN:
-                # if event.key == pygame.K_UP:
-                #     self.leader_vel_des += 1
-                # elif event.key == pygame.K_DOWN:
-                #     self.leader_vel_des -= 1
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
                     return
                 
         # check for collision
-        if self.check_goal_reached():
+        if self.robot_base.check_goal_reached():
             print('Goal reached')
             self.running = False
             return
         
         # Clear the screen
-        self.screen.fill(RobotBaseEnv.WHITE)   
+        self.screen.fill(self.env_config.white)   
 
         # Draw the road
         pygame.draw.rect(
             self.screen,
-            RobotBaseEnv.GRAY,
+            self.env_config.gray,
             (
                 0,
                 0,
-                RobotBaseEnv.SCREEN_WIDTH,
-                RobotBaseEnv.SCREEN_HEIGHT,
+                self.env_config.screen_width,
+                self.env_config.screen_height,
             ),
         )
 
         # draw the obstacles
         for obstacle in self.obstacles:
-            pygame.draw.rect(self.screen, RobotBaseEnv.BLACK, obstacle.pygame_drawing())
+            pygame.draw.rect(self.screen, self.env_config.black, obstacle.pygame_drawing())
 
         # draw the robot
         robot_base_drawing = self.robot_base.pygame_drawing()
-        pygame.draw.rect(self.screen, RobotBaseEnv.RED, robot_base_drawing)
+        pygame.draw.rect(self.screen, self.env_config.red, robot_base_drawing)
 
         # Draw the goal as a blue dot
-        pygame.draw.circle(self.screen, RobotBaseEnv.BLUE, (self.goal_x, self.goal_y), 5)
+        pygame.draw.circle(self.screen, self.env_config.blue, (self.goal_x, self.goal_y), 5)
 
         # Update the display
         pygame.display.flip()
 
         # Cap the frame rate
         pygame.time.Clock().tick(self.fps)
-    
-    def check_goal_reached(self, tolerance=0.01):
-        # function to check if the goal is reached
-        distance = np.linalg.norm(np.array(self.robot_base.position) - np.array(self.pos_des))
-        return distance <= tolerance
+
     
 def pd_controller(pos_des, pos_current, vel_current, Kp=0.5, Kd=0.3):
     """
@@ -190,13 +147,35 @@ def pd_controller(pos_des, pos_current, vel_current, Kp=0.5, Kd=0.3):
     return u
 
 def main():
-    mode = 0 # 0: PD + CBF, 1: CLF + CBF
-    pos_goal = np.array([7, 0])
+    # create env config
+    env_config = EnvConfig(
+        pixels_per_meter=50 * np.array([1, -1]),
+        screen_width=800,
+        screen_height=800
+    )
+
+    # create robot
+    pos_goal = np.array([2, 0])
+    robot_base = RobotBase(
+        width=1,
+        height=1.5,
+        env_config=env_config,
+        pos_goal=pos_goal,
+        pos_center_start=np.array([-7, 0])
+    )
+
+    # create obstacles
     obstacles = [
-        RectangleObstacle(1, 4, np.array([0, -2.001])),
-        RectangleObstacle(2, 2, np.array([3, 4]))
+        RectangleObstacle(1, 4, np.array([0, 0.0]), env_config, robot_base),
+        # RectangleObstacle(3, 1, np.array([2, 2.5]), env_config, robot_base),
+        # RectangleObstacle(3, 1, np.array([2, -2.5]), env_config, robot_base)
     ]
-    env = RobotBaseEnv(pos_goal, pos_start=np.array([-7, 0]), obstacles=obstacles)
+
+    # create environment
+    env = RobotBaseEnv(env_config=env_config, robot_base=robot_base, obstacles=obstacles)
+
+    # create the cbf configes 
+    mode = 0 # 0: PD + CBF, 1: CLF + CBF
     if mode == 0:
         config = RobotBaseCBFConfig(env.obstacles, env.robot_base)
         cbf = CBF.from_config(config)
@@ -205,7 +184,9 @@ def main():
         clf_cbf = CLFCBF.from_config(config)
     else:
         raise f'Incorrect mode!'
-    visualizer = VisualizeCBF(obstacles)
+    
+    # create the visualizer object
+    visualizer = VisualizeCBF(pos_goal, obstacles)
 
     while env.running:
         current_state = env.get_state()

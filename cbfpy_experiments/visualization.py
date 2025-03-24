@@ -3,7 +3,7 @@ import matplotlib.patches as patches
 import numpy as np
 
 class VisualizeCBF:
-    def __init__(self, obstacles=[]):
+    def __init__(self, pos_goal, obstacles=[]):
         self.data = {
             'control_input': {
                 'u_cbf': [],
@@ -12,6 +12,7 @@ class VisualizeCBF:
             'h':[],
             'robot_pos': []
         }
+        self.pos_goal = pos_goal
         self.obstacles = obstacles
 
     def plot_control_input(self, ax=None):
@@ -26,10 +27,6 @@ class VisualizeCBF:
             fig, ax = plt.subplots()
         else:
             axes = ax
-        
-        # Ensure axes is iterable (even if there's only one CBF)
-        if dim_controller == 1:
-            axes = [axes]
 
         # Plot the data
         for i in range(dim_controller):
@@ -58,10 +55,6 @@ class VisualizeCBF:
         else:
             axes = ax
 
-        # Ensure axes is iterable (even if there's only one CBF)
-        if num_cbfs == 1:
-            axes = [axes]
-
         # Plot each CBF separately
         for i in range(num_cbfs):
             axes[i].plot(x, h[:, i], label=f'cbf {i}')
@@ -83,17 +76,12 @@ class VisualizeCBF:
 
         # Plot robot trajectory
         ax.plot(robot_pos[:, 0], robot_pos[:, 1], label='Robot trajectory')
+        ax.plot(self.pos_goal[0], self.pos_goal[1], color='green', marker='o', label='Desired position')
 
         # Add obstacles
         for obstacle in self.obstacles:
-            cx, cy = obstacle.pos_center
-            bottom_left_x = cx - obstacle.width / 2
-            bottom_left_y = cy - obstacle.height / 2
-
-            square = patches.Rectangle((bottom_left_x, bottom_left_y), 
-                                    obstacle.width, obstacle.height, 
-                                    color='black', fill=True)
-            ax.add_patch(square)
+            drawing = obstacle.pyplot_drawing()
+            ax.add_patch(drawing)
 
         # Customize the plot
         ax.set_title('Robot trajectory over time')

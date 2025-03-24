@@ -2,15 +2,17 @@ import numpy as np
 import pygame
 
 class RobotBase:
-    def __init__(self, width, height, px_per_meter, screen_width, screen_height, pos_center_start, vel_center_start):
+    def __init__(self, width, height, env_config, pos_goal, pos_center_start=np.zeros(2), vel_center_start=np.zeros(2), safety_margin=0.5):
         self.width = width                  # in m
         self.height = height                # in m
         self.radius = np.sqrt((self.width / 2)**2 + (self.height / 2)**2)    # in m (radius of circle that the robot uses)
         self._pos_center = pos_center_start  # in m shape (2,)
         self._vel_center = vel_center_start  # in m/s shape (2,)
-        self.px_per_meter = px_per_meter    # in m
-        self.screen_width = screen_width    # in px
-        self.screen_height = screen_height  # in px
+        self.px_per_meter = env_config.pixels_per_meter    # in m
+        self.screen_width = env_config.screen_width    # in px
+        self.screen_height = env_config.screen_height  # in px
+        self.pos_goal = pos_goal
+        self.safety_margin = safety_margin
 
     @property
     def position(self):
@@ -47,3 +49,8 @@ class RobotBase:
         height_px = self.height * self.px_per_meter[0]
         drawing = pygame.Rect(self.pos_px(), (width_px, height_px))
         return drawing
+
+    def check_goal_reached(self, tolerance=0.01):
+        # function to check if the goal is reached
+        distance = np.linalg.norm(np.array(self.position) - np.array(self.pos_goal))
+        return distance <= tolerance
