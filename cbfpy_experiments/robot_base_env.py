@@ -8,7 +8,7 @@ import pygame
 from cbfpy.envs.base_env import BaseEnv
 from cbfpy import CBF, CLFCBF
 
-from obstacles import RectangleObstacle
+from obstacles import RectangleObstacle, CircleObstacle
 from robot_base import RobotBase
 from visualization import VisualizeCBF
 from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
@@ -111,7 +111,7 @@ class RobotBaseEnv(BaseEnv):
 
         # draw the obstacles
         for obstacle in self.obstacles:
-            pygame.draw.rect(self.screen, self.env_config.black, obstacle.pygame_drawing())
+            obstacle.pygame_drawing(self.screen, self.env_config.black)
 
         # draw the robot
         robot_base_drawing = self.robot_base.pygame_drawing()
@@ -155,20 +155,21 @@ def main():
     )
 
     # create robot
-    pos_goal = np.array([2, 0])
+    pos_goal = np.array([4, 0])
     robot_base = RobotBase(
         width=1,
         height=1.5,
         env_config=env_config,
         pos_goal=pos_goal,
-        pos_center_start=np.array([-7, 1])
+        pos_center_start=np.array([-7, 0.0])
     )
 
     # create obstacles
     obstacles = [
-        RectangleObstacle(1, 6, np.array([0, 0.0]), env_config, robot_base),
-        RectangleObstacle(3, 1, np.array([2, 2.5]), env_config, robot_base),
-        RectangleObstacle(3, 1, np.array([2, -2.5]), env_config, robot_base)
+        # RectangleObstacle(1, 6, np.array([0, 0.0]), env_config, robot_base),
+        CircleObstacle(2, np.array([0.0, 0.0]), env_config, robot_base)
+        # RectangleObstacle(3, 1, np.array([2, 2.5]), env_config, robot_base),
+        # RectangleObstacle(3, 1, np.array([2, -2.5]), env_config, robot_base)
     ]
 
     # create environment
@@ -195,7 +196,7 @@ def main():
             nominal_control = pd_controller(pos_des, current_state[:2], current_state[2:])
         elif mode == 1:
             pos_des = np.concatenate((pos_des, np.zeros(2)))
-            nominal_control = clf_cbf.controller(current_state, pos_des)
+            u = clf_cbf.controller(current_state, pos_des)
 
         # safe data for visualizer
         h = config.h_1(current_state)
@@ -207,7 +208,8 @@ def main():
         if mode == 0:
             u = cbf.safety_filter(current_state, nominal_control)
         elif mode == 1:
-            u = nominal_control
+            # calculate the nominal control for the visualization
+            nominal_control = config.V_1(current_state)
 
         # safe control data for visualizer
         visualizer.data['control_input']['u_cbf'].append(u)

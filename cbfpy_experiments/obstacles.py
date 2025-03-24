@@ -9,26 +9,6 @@ import matplotlib.patches as patches
 class Obstacle(ABC):
     """ Abstract class to create all different kinds of obstacls
     """
-    @property
-    @abstractmethod
-    def width_px(self) -> int:
-        """
-        returns the width in pixels
-        """
-        pass
-
-    @property
-    @abstractmethod
-    def height_px(self) -> int:
-        # returns the height in pixels
-        pass
-
-    @property
-    @abstractmethod
-    def pos_px(self):
-        # returns the postiton of the pixels from the obstacles
-        pass
-
     @abstractmethod
     def h(self):
         # method to get the value of the cbf
@@ -42,6 +22,11 @@ class Obstacle(ABC):
     @abstractmethod
     def pyplot_drawing(self):
         # method to return a plot drawing for the trajectory
+        pass
+
+    @abstractmethod
+    def check_collision(self):
+        # method to check if the robot is in collision with the object
         pass
 
 class RectangleObstacle(Obstacle):
@@ -80,10 +65,10 @@ class RectangleObstacle(Obstacle):
 
         return int(left_top[0]), int(left_top[1])
 
-    def pygame_drawing(self):
+    def pygame_drawing(self, screen, color):
         pos_x, pos_y = self.pos_px
         drawing = pygame.Rect(pos_x, pos_y, self.width_px, self.height_px)
-        return drawing
+        pygame.draw.rect(screen, color, drawing)
 
     def pyplot_drawing(self):
         cx, cy = self.pos_center
@@ -132,3 +117,32 @@ class RectangleObstacle(Obstacle):
         closest_x = jnp.clip(cx_robot, cx_obstacle - (self.width / 2), cx_obstacle + (self.width / 2))
         closest_y = jnp.clip(cy_robot, cy_obstacle - (self.height / 2), cy_obstacle + (self.height / 2))
         return jnp.array([closest_x, closest_y])
+
+class CircleObstacle(Obstacle):
+    # object for circular obstacles
+    def __init__(self, radius, pos_center, env_config: EnvConfig, robot: RobotBase):
+        self.radius = radius            # in m
+        self.pos_center = pos_center    # in m shape (2,)            
+        self.env_config = env_config    
+        self.robot = robot
+    
+    def h(self, z):
+        px, py, _, _ = z
+        delta = jnp.array([px, py]) - self.pos_center
+        h = jnp.dot(delta, delta) - (self.robot.radius + self.radius + self.robot.safety_margin)**2
+        return h
+
+    def pygame_drawing(self, screen, color):
+        radius_px = int(self.env_config.pixels_per_meter[0] * self.radius)
+        pos_px = self.pos_center * self.env_config.pixels_per_meter
+        pos_px += np.array([self.env_config.screen_width / 2, self.env_config.screen_height / 2])
+        pygame.draw.circle(screen, color, (pos_px[0], pos_px[1]), radius_px)
+
+    def pyplot_drawing(self):
+        circle = patches.Circle(self.pos_center, self.radius, color='black')
+        return circle
+
+    def check_collision(self, robot: RobotBase):
+        # checks whehter the robot collides with this object
+        distance = np.linalg.norm(np.array(robot.position) - np.array(self.pos_center))
+        return distance <= (robot.radius + self.radius)

@@ -22,9 +22,7 @@ class RobotBaseCBFConfig(CBFConfig):
             h_value = obstacle.h(z)
             h_values.append(h_value)
         return jnp.array(h_values)
-    
-    # def alpha(self, h):
-    #     return jnp.array([1.0]) * h
+
 
 class RobotBaseCLFCBFConfig(CLFCBFConfig):
     def __init__(self, obstacles, robot):
