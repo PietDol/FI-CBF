@@ -2,7 +2,7 @@ import numpy as np
 import pygame
 
 class RobotBase:
-    def __init__(self, width, height, env_config, pos_goal, pos_center_start=np.zeros(2), vel_center_start=np.zeros(2), safety_margin=0.5):
+    def __init__(self, width, height, env_config, pos_goal, pos_center_start=np.zeros(2), vel_center_start=np.zeros(2), safety_margin=0.0, u_min_max=np.array([-np.inf, np.inf])):
         self.width = width                  # in m
         self.height = height                # in m
         self.radius = np.sqrt((self.width / 2)**2 + (self.height / 2)**2)    # in m (radius of circle that the robot uses)
@@ -13,6 +13,7 @@ class RobotBase:
         self.screen_height = env_config.screen_height  # in px
         self.pos_goal = pos_goal
         self.safety_margin = safety_margin
+        self.u_min_max = u_min_max
 
     @property
     def position(self):

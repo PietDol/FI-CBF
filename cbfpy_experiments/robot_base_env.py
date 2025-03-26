@@ -22,19 +22,21 @@ class RobotBaseEnv(BaseEnv):
         env_config: EnvConfig,
         robot_base: RobotBase,
         obstacles: list, 
-        u_min_max=np.array([-np.inf, np.inf])
+        pygame_screen=True
     ):
-        self.u_min_max = u_min_max
         self.env_config = env_config
+        self.pygame_screen = pygame_screen
 
         # set up the environment
         # Initialize Pygame
         pygame.init()
-        # Set up the display
-        self.screen = pygame.display.set_mode(
-            (self.env_config.screen_width, self.env_config.screen_height)
-        )
-        pygame.display.set_caption("Robot base experiment")
+        if self.pygame_screen:
+            # Set up the display
+            self.screen = pygame.display.set_mode(
+                (self.env_config.screen_width, self.env_config.screen_height)
+            )
+            pygame.display.set_caption("Robot base experiment")
+            self.font = pygame.font.SysFont("Arial", 20)
 
         # add robot base
         self.robot_base  = robot_base
@@ -46,7 +48,6 @@ class RobotBaseEnv(BaseEnv):
         self.goal_x, self.goal_y = self.position_to_pixels(self.robot_base.pos_goal)
 
         # some other pygame parameters
-        self.font = pygame.font.SysFont("Arial", 20)
         self.fps = 60
         self.dt = 1 / self.fps
         self.running = True
@@ -64,17 +65,17 @@ class RobotBaseEnv(BaseEnv):
     
     def apply_control(self, u) -> None:
         # just add the control input to the 
-        # u = np.clip(u, self.u_min_max[0], self.u_min_max[1])
+        u = np.clip(u, self.robot_base.u_min_max[0], self.robot_base.u_min_max[1])
         vel_current = self.robot_base.velocity + u
         pos_current = self.robot_base.position + vel_current * self.dt
         self.robot_base.velocity = vel_current
         self.robot_base.position = pos_current
 
         # check collision
-        for obstacle in self.obstacles:
-            collision = obstacle.check_collision(self.robot_base)
-            if collision:
-                print('Collision')
+        # for obstacle in self.obstacles:
+        #     collision = obstacle.check_collision(self.robot_base)
+        #     if collision:
+        #         print('Collision')
     
     def step(self):
         # Handle events
@@ -95,33 +96,34 @@ class RobotBaseEnv(BaseEnv):
             return
         
         # Clear the screen
-        self.screen.fill(self.env_config.white)   
+        if self.pygame_screen:
+            self.screen.fill(self.env_config.white)   
 
-        # Draw the road
-        pygame.draw.rect(
-            self.screen,
-            self.env_config.gray,
-            (
-                0,
-                0,
-                self.env_config.screen_width,
-                self.env_config.screen_height,
-            ),
-        )
+            # Draw the road
+            pygame.draw.rect(
+                self.screen,
+                self.env_config.gray,
+                (
+                    0,
+                    0,
+                    self.env_config.screen_width,
+                    self.env_config.screen_height,
+                ),
+            )
 
-        # draw the obstacles
-        for obstacle in self.obstacles:
-            obstacle.pygame_drawing(self.screen, self.env_config.black)
+            # draw the obstacles
+            for obstacle in self.obstacles:
+                obstacle.pygame_drawing(self.screen, self.env_config.black)
 
-        # draw the robot
-        robot_base_drawing = self.robot_base.pygame_drawing()
-        pygame.draw.rect(self.screen, self.env_config.red, robot_base_drawing)
+            # draw the robot
+            robot_base_drawing = self.robot_base.pygame_drawing()
+            pygame.draw.rect(self.screen, self.env_config.red, robot_base_drawing)
 
-        # Draw the goal as a blue dot
-        pygame.draw.circle(self.screen, self.env_config.blue, (self.goal_x, self.goal_y), 5)
+            # Draw the goal as a blue dot
+            pygame.draw.circle(self.screen, self.env_config.blue, (self.goal_x, self.goal_y), 5)
 
-        # Update the display
-        pygame.display.flip()
+            # Update the display
+            pygame.display.flip()
 
         # Cap the frame rate
         pygame.time.Clock().tick(self.fps)
@@ -161,19 +163,26 @@ def main():
         height=1.5,
         env_config=env_config,
         pos_goal=pos_goal,
-        pos_center_start=np.array([-7, 0.0])
+        pos_center_start=np.array([-7, 0.01]),
+        safety_margin=0.1
     )
 
     # create obstacles
     obstacles = [
         # RectangleObstacle(1, 6, np.array([0, 0.0]), env_config, robot_base),
-        CircleObstacle(2, np.array([0.0, 0.0]), env_config, robot_base)
+        CircleObstacle(2, np.array([0.0, 0.0]), env_config, robot_base),
+        CircleObstacle(1, np.array([4.0, 4.0]), env_config, robot_base)
         # RectangleObstacle(3, 1, np.array([2, 2.5]), env_config, robot_base),
         # RectangleObstacle(3, 1, np.array([2, -2.5]), env_config, robot_base)
     ]
 
     # create environment
-    env = RobotBaseEnv(env_config=env_config, robot_base=robot_base, obstacles=obstacles)
+    env = RobotBaseEnv(
+        env_config=env_config, 
+        robot_base=robot_base, 
+        obstacles=obstacles, 
+        pygame_screen=True
+    )
 
     # create the cbf configes 
     mode = 0 # 0: PD + CBF, 1: CLF + CBF

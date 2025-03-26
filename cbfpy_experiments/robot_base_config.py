@@ -13,6 +13,7 @@ class RobotBaseCBFConfig(CBFConfig):
         return jnp.array([vx, vy, 0, 0])
     
     def g(self, z):
+        # return jnp.block([[jnp.zeros((2, 2))], [jnp.eye(2)]])
         return jnp.block([[jnp.eye(2)], [jnp.zeros((2, 2))]])
     
     def h_1(self, z):
@@ -22,6 +23,14 @@ class RobotBaseCBFConfig(CBFConfig):
             h_value = obstacle.h(z)
             h_values.append(h_value)
         return jnp.array(h_values)
+
+    # def h_2(self, z):
+    #     h_values = []
+
+    #     for obstacle in self.obstacles:
+    #         h_value = obstacle.h(z)
+    #         h_values.append(h_value)
+    #     return jnp.array(h_values)
 
 
 class RobotBaseCLFCBFConfig(CLFCBFConfig):

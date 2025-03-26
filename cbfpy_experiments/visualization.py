@@ -3,8 +3,8 @@ import matplotlib.patches as patches
 import numpy as np
 
 class VisualizeCBF:
-    def __init__(self, pos_goal, obstacles=[]):
-        self.data = {
+    def __init__(self, pos_goal, obstacles=[], show_plot=True):
+        self._empty_dataset = {
             'control_input': {
                 'u_cbf': [],
                 'u_nominal': []
@@ -12,8 +12,14 @@ class VisualizeCBF:
             'h':[],
             'robot_pos': []
         }
+        self.data = self._empty_dataset
         self.pos_goal = pos_goal
         self.obstacles = obstacles
+        self.show_plot = show_plot
+    
+    def clear(self):
+        # clear the data dictionary
+        self.data = self._empty_dataset
 
     def plot_control_input(self, ax=None):
         # Convert lists to array
@@ -94,7 +100,8 @@ class VisualizeCBF:
         return ax  # Return the modified axis
 
     
-    def create_plot(self, plot_types):
+    def create_plot(self, plot_types, filename=''):
+        # function save figure if there is a filename
         num_control = 'control_input' in plot_types
         num_coloms_control = len(self.data['control_input']['u_nominal'][0]) if 'control_input' in plot_types and len(self.data['control_input']['u_nominal']) > 0 else 0
         num_cbfs = 'h' in plot_types
@@ -155,5 +162,10 @@ class VisualizeCBF:
                     fig.delaxes(axes[ax_idx][i])
 
         plt.tight_layout()
-        plt.show()
+
+        if isinstance(filename, str) and filename != '':
+            plt.savefig(filename)
+
+        if self.show_plot:
+            plt.show()
 
