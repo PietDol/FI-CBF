@@ -91,7 +91,7 @@ class RobotBaseEnv(BaseEnv):
                 
         # check for collision
         if self.robot_base.check_goal_reached():
-            print('Goal reached')
+            # print('Goal reached')
             self.running = False
             return
         
@@ -125,8 +125,8 @@ class RobotBaseEnv(BaseEnv):
             # Update the display
             pygame.display.flip()
 
-        # Cap the frame rate
-        pygame.time.Clock().tick(self.fps)
+            # Cap the frame rate
+            pygame.time.Clock().tick(self.fps)
 
     
 def pd_controller(pos_des, pos_current, vel_current, Kp=0.5, Kd=0.3):

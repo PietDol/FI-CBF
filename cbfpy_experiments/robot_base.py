@@ -11,8 +11,8 @@ class RobotBase:
         self.px_per_meter = env_config.pixels_per_meter    # in m
         self.screen_width = env_config.screen_width    # in px
         self.screen_height = env_config.screen_height  # in px
-        self.pos_goal = pos_goal
-        self.safety_margin = safety_margin
+        self.pos_goal = pos_goal            # in m shape (2,)
+        self.safety_margin = safety_margin  # in m
         self.u_min_max = u_min_max
 
     @property

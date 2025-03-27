@@ -29,6 +29,11 @@ class Obstacle(ABC):
         # method to check if the robot is in collision with the object
         pass
 
+    @abstractmethod
+    def check_goal_position(self):
+        # method to check if the goal position of the robot is feasible
+        pass
+
 class RectangleObstacle(Obstacle):
     # object for obstacles
     def __init__(self, width, height, pos_center, env_config: EnvConfig, robot: RobotBase):
@@ -117,6 +122,20 @@ class RectangleObstacle(Obstacle):
         closest_x = jnp.clip(cx_robot, cx_obstacle - (self.width / 2), cx_obstacle + (self.width / 2))
         closest_y = jnp.clip(cy_robot, cy_obstacle - (self.height / 2), cy_obstacle + (self.height / 2))
         return jnp.array([closest_x, closest_y])
+    
+    def check_goal_position(self, robot: RobotBase, extra_safety_margin=0.5):
+        # check if the goal position is feasible
+        cx_robot, cy_robot = robot.pos_goal 
+        cx_obstacle, cy_obstacle = self.pos_center
+
+        # Check x-axis overlap
+        x_overlap = abs(cx_robot - cx_obstacle) <= (robot.width / 2) + (self.width / 2) + extra_safety_margin
+
+        # Check y-axis overlap
+        y_overlap = abs(cy_robot - cy_obstacle) <= (robot.height / 2) + (self.height / 2) + extra_safety_margin
+
+        return not (x_overlap and y_overlap)
+
 
 class CircleObstacle(Obstacle):
     # object for circular obstacles
@@ -146,3 +165,9 @@ class CircleObstacle(Obstacle):
         # checks whehter the robot collides with this object
         distance = np.linalg.norm(np.array(robot.position) - np.array(self.pos_center))
         return distance <= (robot.radius + self.radius)
+
+    def check_goal_position(self, robot: RobotBase, extra_safety_margin=0.5):
+        # check if the goal position is feasible
+        # return true if it is feasible and false otherwise
+        distance = np.linalg.norm(np.array(robot.pos_goal) - np.array(self.pos_center))
+        return distance >= (robot.radius + self.radius + extra_safety_margin)
