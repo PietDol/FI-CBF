@@ -83,6 +83,7 @@ class VisualizeCBF:
         # Plot robot trajectory
         ax.plot(robot_pos[:, 0], robot_pos[:, 1], label='Robot trajectory')
         ax.plot(self.pos_goal[0], self.pos_goal[1], color='green', marker='o', label='Desired position')
+        ax.plot(robot_pos[0, 0], robot_pos[0, 1], color='red', marker='o', label='Start position')
 
         # Add obstacles
         for obstacle in self.obstacles:
@@ -165,6 +166,7 @@ class VisualizeCBF:
 
         if isinstance(filename, str) and filename != '':
             plt.savefig(filename)
+            plt.close()
 
         if self.show_plot:
             plt.show()

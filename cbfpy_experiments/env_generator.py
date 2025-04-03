@@ -81,18 +81,22 @@ class EnvGenerator:
     
     def _check_collision(self, robot, obstacles, generation=False):
         # checks if there is a collision between robot and obstacles
+        obs_to_keep = []
         for i, obstacle in enumerate(obstacles):
             collision = obstacle.check_collision(robot)
             goal_feasible = obstacle.check_goal_position(robot)
 
             if generation and (collision or not goal_feasible):
                 logger.info(f"Robot or goal position in collision with obstacle, remove obstacle.")
-                obstacles.pop(i)
+                obs_to_keep.append(False)
             elif not generation and collision:
                 logger.error(f"Collision between robot and obstacle! Robot position: {robot.position}, obstacle index: {i}")
-        
+            elif generation:
+                obs_to_keep.append(True)
+
         if generation:
-            return obstacles
+            filtered_obstacles = [obstacle for obstacle, keep in zip(obstacles, obs_to_keep) if keep]
+            return filtered_obstacles
     
     def _generate_obstacles(self, robot: RobotBase, max_tries=1000):
         obstacles = []
@@ -282,12 +286,12 @@ class EnvGenerator:
 
 
 def main():
-    directory = './runs'
+    directory = './run_1'
     
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=1000,
+        number_of_simulations=100,
         max_number_of_obstacles=10,
         environment_size=(20, 20),
         max_obstacle_size={
