@@ -255,6 +255,10 @@ class EnvGenerator:
         visualizer.data['robot_pos'].append(current_state[:2])
 
         # generate drawings
+        if goal_reached:
+            filename = f"{filename.split('.')[0]}_success.png"
+        else:
+            filename = f"{filename.split('.')[0]}_fail.png"
         visualizer.create_plot(['control_input', 'h', 'robot_pos'], f"{self.config.work_dir}/simulation_results/{filename}")
         logger.info(f"Visualization saved: {filename}")
 
@@ -286,7 +290,7 @@ class EnvGenerator:
 
 
 def main():
-    directory = './run_1'
+    directory = './runs/run_1'
     
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
