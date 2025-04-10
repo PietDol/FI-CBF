@@ -61,6 +61,7 @@ class RobotBaseEnv(BaseEnv):
         return np.concatenate((self.robot_base.position, self.robot_base.velocity))
     
     def get_desired_state(self):
+        # TODO: here we need to add the planner
         return self.robot_base.pos_goal
     
     def apply_control(self, u) -> None:
@@ -70,12 +71,6 @@ class RobotBaseEnv(BaseEnv):
         pos_current = self.robot_base.position + vel_current * self.dt
         self.robot_base.velocity = vel_current
         self.robot_base.position = pos_current
-
-        # check collision
-        # for obstacle in self.obstacles:
-        #     collision = obstacle.check_collision(self.robot_base)
-        #     if collision:
-        #         print('Collision')
     
     def step(self):
         # Handle events
@@ -91,7 +86,6 @@ class RobotBaseEnv(BaseEnv):
                 
         # check for collision
         if self.robot_base.check_goal_reached():
-            # print('Goal reached')
             self.running = False
             return
         

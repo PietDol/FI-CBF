@@ -84,6 +84,16 @@ class RectangleObstacle(Obstacle):
                                 self.width, self.height, 
                                 color='black', fill=True)
         return square
+    
+    def add_obstacle_to_costmap(self, costmap, grid_size=1):
+        # add the obstacles to the costmap
+        # gridsize is the length in m of 1 grid (assumes it is squared)
+        x_min = int(self.pos_center[0] / grid_size - self.width / (2 * grid_size))
+        x_max = int(self.pos_center[0] / grid_size + self.width / (2 * grid_size))
+        y_min = int(self.pos_center[1] / grid_size - self.height / (2 * grid_size))
+        y_max = int(self.pos_center[1] / grid_size + self.height / (2 * grid_size))
+        costmap[x_min:x_max, y_min:y_max] = np.inf
+        return costmap
 
     def h(self, z):
         px, py, _, _ = z
