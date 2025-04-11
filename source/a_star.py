@@ -2,14 +2,46 @@ import numpy as np
 import heapq
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.patches as patches
 from obstacles import RectangleObstacle
 from robot_base import RobotBase
 from env_config import EnvConfig
+from matplotlib.collections import PatchCollection
+
+class Node:
+    def __init__(self, x, y, grid_size, origin_offset):
+        self.x = x  # grid index (row)
+        self.y = y  # grid index (column)
+        self.grid_size = grid_size
+        self.origin_offset = origin_offset
+        self.pos = self.grid_to_world((x, y))  # Real-world position in meters
+        self.g = float('inf')
+        self.h = float('inf')
+        self.f = float('inf')
+        self.parent = None
+    
+    def grid_to_world(self, idx):
+        ij = np.array(idx[::-1])
+        pos = (ij * self.grid_size) - (np.array(self.origin_offset) * self.grid_size)
+        return tuple(pos)
+
+    def __lt__(self, other):  # Needed for heapq
+        return self.f < other.f
+
+    def coords(self):
+        return (self.x, self.y)
 
 class AStarPlanner:
-    def __init__(self, costmap, diagonal_movement=True, heuristic='euclidean'):
-        self.costmap = costmap
-        self.rows, self.cols = costmap.shape
+    def __init__(self, costmap_size, grid_size=1, obstacles=[], diagonal_movement=True, heuristic='euclidean'):
+        self.obstacles = obstacles
+        self.grid_size = grid_size
+        self.origin_offset = np.array(costmap_size) / (2 * self.grid_size)
+
+        # create costmap
+        self.costmap = self.create_costmap(costmap_size)
+        self.rows, self.cols = self.costmap.shape
+
+        # set the movements
         self.diagonal_movement = diagonal_movement
         self.heuristic = heuristic
 
@@ -20,6 +52,15 @@ class AStarPlanner:
             self.directions += [
                 (-1, -1), (-1, 1), (1, -1), (1, 1)
             ]
+    
+    def create_costmap(self, costmap_size):
+        # generate the costmap
+        costmap = np.ones((int(costmap_size[0] / self.grid_size), int(costmap_size[1] / self.grid_size))) * self.grid_size
+
+        # add the obstacles to it
+        for obstacle in self.obstacles:
+            costmap = obstacle.add_obstacle_to_costmap(costmap, self.origin_offset, self.grid_size)
+        return costmap
 
     def is_valid(self, x, y):
         return 0 <= x < self.rows and 0 <= y < self.cols and self.costmap[x, y] < np.inf
@@ -29,40 +70,70 @@ class AStarPlanner:
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
         else:  # Euclidean by default
             return np.linalg.norm(np.array(a) - np.array(b))
+    
+    def world_to_grid(self, pos):
+        """Convert world coordinate (x, y) in meters to grid index (i, j)."""
+        grid = np.floor((np.array(pos) + np.array(self.origin_offset) * self.grid_size) / self.grid_size).astype(int)
+        return tuple(grid[::-1])  # (i, j) as (row, col)
 
-    def plan(self, start, goal):
+    def grid_to_world(self, idx):
+        """Convert grid index (i, j) to world coordinate (x, y) in meters."""
+        ij = np.array(idx[::-1])
+        pos = (ij * self.grid_size) - (np.array(self.origin_offset) * self.grid_size)
+        return tuple(pos)
+
+    def plan(self, start_coords, goal_coords):
+        # convert to grid
+        start_coords = self.world_to_grid(start_coords)
+        goal_coords = self.world_to_grid(goal_coords)
+
+        # initialize the nodes
+        start_node = Node(*start_coords, self.grid_size, self.origin_offset)
+        goal_node = Node(*goal_coords, self.grid_size, self.origin_offset)
+
         open_set = []
-        heapq.heappush(open_set, (0, start))
+        heapq.heappush(open_set, (0, start_node))
         came_from = {}
-        g_score = {start: 0}
+
+        start_node.g = 0
+        start_node.h = self.heuristic_cost(start_node.coords(), goal_node.coords())
+        start_node.f = start_node.g + start_node.h
+
+        visited = {(start_node.x, start_node.y): start_node}
 
         while open_set:
             _, current = heapq.heappop(open_set)
 
-            if current == goal:
-                return self.reconstruct_path(came_from, current)
+            if (current.x, current.y) == (goal_node.x, goal_node.y):
+                return self.reconstruct_path(current)
 
             for dx, dy in self.directions:
-                neighbor = (current[0] + dx, current[1] + dy)
-                if not self.is_valid(*neighbor):
+                nx, ny = current.x + dx, current.y + dy
+                if not self.is_valid(nx, ny):
                     continue
 
-                move_cost = np.linalg.norm([dx, dy])
-                tentative_g = g_score[current] + self.costmap[neighbor] * move_cost
+                move_cost = self.grid_size * np.linalg.norm([dx, dy])
+                tentative_g = current.g + move_cost
 
-                if neighbor not in g_score or tentative_g < g_score[neighbor]:
-                    g_score[neighbor] = tentative_g
-                    f = tentative_g + self.heuristic_cost(neighbor, goal)
-                    heapq.heappush(open_set, (f, neighbor))
-                    came_from[neighbor] = current
+                if (nx, ny) not in visited:
+                    neighbor = Node(nx, ny, self.grid_size, self.origin_offset)
+                    visited[(nx, ny)] = neighbor
+                else:
+                    neighbor = visited[(nx, ny)]
 
+                if tentative_g < neighbor.g:
+                    neighbor.g = tentative_g
+                    neighbor.h = self.heuristic_cost(neighbor.coords(), goal_node.coords())
+                    neighbor.f = neighbor.g + neighbor.h
+                    neighbor.parent = current
+                    heapq.heappush(open_set, (neighbor.f, neighbor))
         return None  # No path found
 
-    def reconstruct_path(self, came_from, current):
-        path = [current]
-        while current in came_from:
-            current = came_from[current]
-            path.append(current)
+    def reconstruct_path(self, current):
+        path = []
+        while current:
+            path.append(current.coords())
+            current = current.parent
         path.reverse()
         return path
     
@@ -80,10 +151,9 @@ class AStarPlanner:
         return distance_map
 
     def plot_costmap(self, path=None, start=None, goal=None, use_distance_map=True):
-        """Visualize the costmap or distance-from-start map with optional path and color legend."""
         fig, ax = plt.subplots(figsize=(6, 6))
 
-        # Compute distance map if requested
+        # Compute distance map
         if use_distance_map and start:
             display_map = self.compute_distance_map(start)
         else:
@@ -94,58 +164,67 @@ class AStarPlanner:
         display_map = display_map.copy()
         if np.any(obstacle_mask):
             max_val = np.max(display_map[~obstacle_mask])
-            display_map[obstacle_mask] = max_val + 10  # make obstacles stand out
+            display_map[obstacle_mask] = max_val + 10
             vmax = max_val + 10
             vmin = np.min(display_map[~obstacle_mask])
         else:
             vmax = np.max(display_map)
             vmin = np.min(display_map)
 
-        # Show distance/cost map with colormap
+        # Show distance/cost map
+        extent = [
+            *self.grid_to_world((0, 0)),                     # lower left (x_min, y_min)
+            *self.grid_to_world((self.rows, self.cols))      # upper right (x_max, y_max)
+        ]
+        extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow: [x_min, x_max, y_min, y_max]
+
         cmap = plt.cm.viridis
-        img = ax.imshow(display_map, cmap=cmap, origin='lower', vmin=vmin, vmax=vmax)
+        img = ax.imshow(display_map, cmap=cmap, origin='lower', vmin=vmin, vmax=vmax, extent=extent)
 
-        # Overlay obstacles as black squares
-        obstacle_overlay = np.full_like(self.costmap, np.nan, dtype=float)
-        obstacle_overlay[obstacle_mask] = 1.0  # Only obstacle cells will be shown
+        # Draw obstacles as black rectangles
+        for obstacle in self.obstacles:
+            drawing = obstacle.pyplot_drawing()
+            ax.add_patch(drawing)
 
-        # Overlay using a black colormap on obstacle cells only
-        ax.imshow(obstacle_overlay, cmap='gray', origin='lower', vmin=0, vmax=1, alpha=1.0)
-
-        # Overlay path
+        # Convert path to world and plot
         if path:
-            y_coords, x_coords = zip(*path)
+            path_world = [self.grid_to_world(p) for p in path]
+            x_coords, y_coords = zip(*path_world)
             ax.plot(x_coords, y_coords, color='cyan', linewidth=2, label='Path')
 
-        # Start and goal markers
+        # Start and goal markers (converted to world)
         if start:
-            ax.plot(start[1], start[0], 'go', markersize=8, label='Start')
+            sx, sy = start
+            ax.plot(sx, sy, 'go', markersize=8, label='Start')
         if goal:
-            ax.plot(goal[1], goal[0], 'ro', markersize=8, label='Goal')
+            gx, gy = goal
+            ax.plot(gx, gy, 'ro', markersize=8, label='Goal')
 
-        # Legend with obstacle patch
-        handles, labels = ax.get_legend_handles_labels()
+        # Axis labels
+        ax.set_title("Costmap and A* Path")
+        ax.set_xlabel("X (meters)")
+        ax.set_ylabel("Y (meters)")
+        ax.grid(True)
+        ax.axis('equal')
 
+        # Legend
         obstacle_patch = mpatches.Patch(color='black', label='Obstacle')
+        handles, labels = ax.get_legend_handles_labels()
         handles.append(obstacle_patch)
         ax.legend(handles=handles, loc='upper left')
 
-        # Add colorbar
+        # Colorbar
         cbar = fig.colorbar(img, ax=ax)
         cbar.set_label("Distance from start", rotation=270, labelpad=15)
 
-        ax.set_title("Costmap and A* Path")
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.grid(True)
         plt.tight_layout()
         plt.show()
 
 
 if __name__ == "__main__":
-    size = np.ones((10, 10))
-    grid_size = 1
-    costmap = np.ones((int(size.shape[0] / grid_size), int(size.shape[1] / grid_size))) * grid_size
+    # size = np.ones((10, 10))
+    # grid_size = 1
+    # costmap = np.ones((int(size.shape[0] / grid_size), int(size.shape[1] / grid_size))) * grid_size
     env_config = EnvConfig(
         pixels_per_meter=50 * np.array([1, -1]),
         screen_width=800,
@@ -166,12 +245,14 @@ if __name__ == "__main__":
         robot=robot
     )
     # costmap[4, 2:8] = np.inf  # obstacle
-    costmap = rect_obstacle.add_obstacle_to_costmap(costmap, grid_size)
+    planner = AStarPlanner(
+        costmap_size=(20, 20),
+        grid_size=1,
+        obstacles=[rect_obstacle]
+    )
 
-    start = (0, 0)
-    goal = (9, 9)
-
-    planner = AStarPlanner(costmap)
+    start = (-3, -3)
+    goal = (5, 5)
     path = planner.plan(start, goal)
 
     planner.plot_costmap(path=path, start=start, goal=goal)

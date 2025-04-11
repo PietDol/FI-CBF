@@ -85,13 +85,23 @@ class RectangleObstacle(Obstacle):
                                 color='black', fill=True)
         return square
     
-    def add_obstacle_to_costmap(self, costmap, grid_size=1):
-        # add the obstacles to the costmap
-        # gridsize is the length in m of 1 grid (assumes it is squared)
-        x_min = int(self.pos_center[0] / grid_size - self.width / (2 * grid_size))
-        x_max = int(self.pos_center[0] / grid_size + self.width / (2 * grid_size))
-        y_min = int(self.pos_center[1] / grid_size - self.height / (2 * grid_size))
-        y_max = int(self.pos_center[1] / grid_size + self.height / (2 * grid_size))
+    def add_obstacle_to_costmap(self, costmap, origin_offset, grid_size=1):
+        # adds this rectangular obstacle to the given costmap.
+        # Convert world center to grid index
+        cx = int(np.floor((self.pos_center[0] + origin_offset[0] * grid_size) / grid_size))
+        cy = int(np.floor((self.pos_center[1] + origin_offset[1] * grid_size) / grid_size))
+
+        # Half sizes in cells
+        dx = int(np.ceil(self.width / (2 * grid_size)))
+        dy = int(np.ceil(self.height / (2 * grid_size)))
+
+        # Bounds (clipped to costmap shape)
+        x_min = max(cx - dx, 0)
+        x_max = min(cx + dx, costmap.shape[0])
+        y_min = max(cy - dy, 0)
+        y_max = min(cy + dy, costmap.shape[1])
+
+        # Mark obstacle
         costmap[x_min:x_max, y_min:y_max] = np.inf
         return costmap
 
