@@ -34,6 +34,11 @@ class Obstacle(ABC):
         # method to check if the goal position of the robot is feasible
         pass
 
+    @abstractmethod
+    def add_obstacle_to_costmap(self):
+        # function to add the obstacle to the costmap for the planner
+        pass
+
 class RectangleObstacle(Obstacle):
     # object for obstacles
     def __init__(self, width, height, pos_center, env_config: EnvConfig, robot: RobotBase):
@@ -75,34 +80,36 @@ class RectangleObstacle(Obstacle):
         drawing = pygame.Rect(pos_x, pos_y, self.width_px, self.height_px)
         pygame.draw.rect(screen, color, drawing)
 
-    def pyplot_drawing(self):
+    def pyplot_drawing(self, opacity):
         cx, cy = self.pos_center
         bottom_left_x = cx - self.width / 2
         bottom_left_y = cy - self.height / 2
 
         square = patches.Rectangle((bottom_left_x, bottom_left_y), 
-                                self.width, self.height, 
-                                color='black', fill=True)
+                                self.width, self.height, edgecolor='red',
+                                facecolor='black', alpha=opacity, fill=True)
         return square
     
     def add_obstacle_to_costmap(self, costmap, origin_offset, grid_size=1):
         # adds this rectangular obstacle to the given costmap.
-        # Convert world center to grid index
-        cx = int(np.floor((self.pos_center[0] + origin_offset[0] * grid_size) / grid_size))
-        cy = int(np.floor((self.pos_center[1] + origin_offset[1] * grid_size) / grid_size))
+        # Convert world center to grid indices (row = y, col = x)
+        gx = (self.pos_center[0] + origin_offset[0] * grid_size) / grid_size
+        gy = (self.pos_center[1] + origin_offset[1] * grid_size) / grid_size
 
-        # Half sizes in cells
+        col = int(np.floor(gx))  # x-axis → col
+        row = int(np.floor(gy))  # y-axis → row
+
+        # Half size in cells
         dx = int(np.ceil(self.width / (2 * grid_size)))
         dy = int(np.ceil(self.height / (2 * grid_size)))
 
-        # Bounds (clipped to costmap shape)
-        x_min = max(cx - dx, 0)
-        x_max = min(cx + dx, costmap.shape[0])
-        y_min = max(cy - dy, 0)
-        y_max = min(cy + dy, costmap.shape[1])
+        # Bounds (make sure they're within costmap)
+        row_min = max(row - dy, 0)
+        row_max = min(row + dy, costmap.shape[0])
+        col_min = max(col - dx, 0)
+        col_max = min(col + dx, costmap.shape[1])
 
-        # Mark obstacle
-        costmap[x_min:x_max, y_min:y_max] = np.inf
+        costmap[row_min:row_max, col_min:col_max] = np.inf
         return costmap
 
     def h(self, z):
@@ -165,6 +172,34 @@ class CircleObstacle(Obstacle):
         self.env_config = env_config    
         self.robot = robot
     
+    def add_obstacle_to_costmap(self, costmap, origin_offset, grid_size=1):
+        """
+        Adds a circular obstacle to the costmap.
+        The circle is conservatively approximated as a filled square + circular mask.
+        """
+        # Convert center to grid coordinates
+        gx = (self.pos_center[0] + origin_offset[0] * grid_size) / grid_size
+        gy = (self.pos_center[1] + origin_offset[1] * grid_size) / grid_size
+        col = int(np.round(gx))  # x-axis → col
+        row = int(np.round(gy))  # y-axis → row
+
+        # Compute radius in grid cells, conservatively round UP
+        radius_cells = int(np.ceil(self.radius / grid_size))
+
+        # iterate over the columns and rows
+        for r in range(radius_cells):
+            for c in range(radius_cells):
+                x = (col + c) * grid_size - origin_offset[0] * grid_size
+                y = (row + r) * grid_size - origin_offset[1] * grid_size
+                dist = np.linalg.norm(np.array([x, y]) - self.pos_center)
+
+                if dist < self.radius:
+                    costmap[row+r, col+c] = np.inf
+                    costmap[row+r, col-c-1] = np.inf
+                    costmap[row-r-1, col+c] = np.inf
+                    costmap[row-r-1, col-c-1] = np.inf
+        return costmap
+    
     def h(self, z):
         px, py, _, _ = z
         delta = jnp.array([px, py]) - self.pos_center
@@ -177,8 +212,8 @@ class CircleObstacle(Obstacle):
         pos_px += np.array([self.env_config.screen_width / 2, self.env_config.screen_height / 2])
         pygame.draw.circle(screen, color, (pos_px[0], pos_px[1]), radius_px)
 
-    def pyplot_drawing(self):
-        circle = patches.Circle(self.pos_center, self.radius, color='black')
+    def pyplot_drawing(self, opacity=1.0):
+        circle = patches.Circle(self.pos_center, self.radius, edgecolor='red', facecolor='black', alpha=opacity)
         return circle
 
     def check_collision(self, robot: RobotBase):

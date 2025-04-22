@@ -3,7 +3,7 @@ import heapq
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.patches as patches
-from obstacles import RectangleObstacle
+from obstacles import RectangleObstacle, CircleObstacle
 from robot_base import RobotBase
 from env_config import EnvConfig
 from matplotlib.collections import PatchCollection
@@ -164,8 +164,8 @@ class AStarPlanner:
         display_map = display_map.copy()
         if np.any(obstacle_mask):
             max_val = np.max(display_map[~obstacle_mask])
-            display_map[obstacle_mask] = max_val + 10
-            vmax = max_val + 10
+            display_map[obstacle_mask] = max_val + 1
+            vmax = max_val + 1
             vmin = np.min(display_map[~obstacle_mask])
         else:
             vmax = np.max(display_map)
@@ -183,7 +183,7 @@ class AStarPlanner:
 
         # Draw obstacles as black rectangles
         for obstacle in self.obstacles:
-            drawing = obstacle.pyplot_drawing()
+            drawing = obstacle.pyplot_drawing(0.7)
             ax.add_patch(drawing)
 
         # Convert path to world and plot
@@ -222,37 +222,41 @@ class AStarPlanner:
 
 
 if __name__ == "__main__":
-    # size = np.ones((10, 10))
-    # grid_size = 1
-    # costmap = np.ones((int(size.shape[0] / grid_size), int(size.shape[1] / grid_size))) * grid_size
+    start = (-3, -6)
+    goal = (5, 5)
     env_config = EnvConfig(
         pixels_per_meter=50 * np.array([1, -1]),
         screen_width=800,
         screen_height=800
     )
-
     robot = RobotBase(
         width=1,
         height=1,
         env_config=env_config,
-        pos_goal=np.array([9, 9])
+        pos_center_start=np.array(start),
+        pos_goal=np.array(goal)
     )
     rect_obstacle = RectangleObstacle(
         width=2,
         height=2,
-        pos_center=np.array([2, 2]),
+        pos_center=np.array([2, 0]),
         env_config=env_config,
         robot=robot
     )
-    # costmap[4, 2:8] = np.inf  # obstacle
+    circ_obstacle = CircleObstacle(
+        radius=3,
+        pos_center=np.array([-2, 3]),
+        env_config=env_config,
+        robot=robot
+    )
+    obstacles = [circ_obstacle]
+
     planner = AStarPlanner(
         costmap_size=(20, 20),
-        grid_size=1,
-        obstacles=[rect_obstacle]
+        grid_size=0.5,
+        obstacles=obstacles
     )
 
-    start = (-3, -3)
-    goal = (5, 5)
     path = planner.plan(start, goal)
 
     planner.plot_costmap(path=path, start=start, goal=goal)
