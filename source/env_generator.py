@@ -4,6 +4,7 @@ from env_config import EnvConfig
 from robot_base_env import RobotBaseEnv, pd_controller
 from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
 from robot_base import RobotBase
+from a_star import AStarPlanner
 from visualization import VisualizeCBF
 from cbfpy import CBF, CLFCBF
 import random
@@ -17,6 +18,7 @@ class EnvGeneratorConfig:
                  number_of_simulations: int, 
                  max_number_of_obstacles: int,
                  environment_size: tuple,
+                 grid_size: float,
                  max_obstacle_size: dict,
                  max_duration_of_simulation: float,
                  min_goal_distance: float,
@@ -26,8 +28,9 @@ class EnvGeneratorConfig:
                  cbf_mode=0):
         self.number_of_simulations = number_of_simulations
         self.max_number_of_obstacles = max_number_of_obstacles
-        self.environment_size = environment_size
-        self.max_obstacle_size = max_obstacle_size
+        self.environment_size = environment_size                        # in m
+        self.grid_size = grid_size                                      # in m
+        self.max_obstacle_size = max_obstacle_size                      # in m
         self.max_duration_of_simulation = max_duration_of_simulation    # in seconds
         self.min_goal_distance = min_goal_distance
         self.work_dir = work_dir
@@ -67,8 +70,8 @@ class EnvGenerator:
         max_dist = 0
 
         for _ in range(max_tries):
-            gx = random.uniform(-self.x_range, self.x_range)
-            gy = random.uniform(-self.y_range, self.y_range)
+            gx = np.round(random.uniform(-self.x_range, self.x_range), 2)
+            gy = np.round(random.uniform(-self.y_range, self.y_range), 2)
             dist = np.linalg.norm([gx - cx, gy - cy])
             if dist >= self.config.min_goal_distance:
                 return np.array([gx, gy])
@@ -105,12 +108,12 @@ class EnvGenerator:
 
             for _ in range(number_of_obstacles):
                 shape = random.choice(["circle", "rectangle"])
-                cx = random.uniform(-self.x_range, self.x_range)
-                cy = random.uniform(-self.y_range, self.y_range)
+                cx = np.round(random.uniform(-self.x_range, self.x_range), 2)
+                cy = np.round(random.uniform(-self.y_range, self.y_range), 2)
                 pos_center = np.array([cx, cy])
 
                 if shape == "circle":
-                    radius = random.uniform(1, self.config.max_obstacle_size["circle"])
+                    radius = np.round(random.uniform(1, self.config.max_obstacle_size["circle"]), 2)
                     obstacle = CircleObstacle(
                         radius=radius,
                         pos_center=pos_center,
@@ -120,8 +123,8 @@ class EnvGenerator:
 
                     logger.info(f"Generated CircleObstacle - center: {pos_center}, radius: {radius}")
                 elif shape == "rectangle":
-                    width = random.uniform(1, self.config.max_obstacle_size["rectangle"][0])
-                    height = random.uniform(1, self.config.max_obstacle_size["rectangle"][1])
+                    width = np.round(random.uniform(1, self.config.max_obstacle_size["rectangle"][0]), 2)
+                    height = np.round(random.uniform(1, self.config.max_obstacle_size["rectangle"][1]), 2)
                     obstacle = RectangleObstacle(
                         width=width,
                         height=height,
@@ -144,8 +147,8 @@ class EnvGenerator:
 
     def _generate_env_elements(self):
         # generate the robot object
-        robot_x = random.uniform(-self.x_range, self.x_range)
-        robot_y = random.uniform(-self.y_range, self.y_range)
+        robot_x = np.round(random.uniform(-self.x_range, self.x_range), 2)
+        robot_y = np.round(random.uniform(-self.y_range, self.y_range), 2)
         pos_goal = self._generate_goal((robot_x, robot_y))
 
         robot_base = RobotBase(
@@ -160,12 +163,26 @@ class EnvGenerator:
 
         # generate the obstacles
         obstacles = self._generate_obstacles(robot_base)
+
+        # generate the planner
+        planner = AStarPlanner(
+            costmap_size=self.config.environment_size,
+            grid_size=self.config.grid_size,
+            obstacles=obstacles
+        )
         
-        return robot_base, obstacles
+        return robot_base, obstacles, planner
     
     def _generate_env(self):
         # function to generate the environment
-        robot, obstacles = self._generate_env_elements()
+        robot, obstacles, planner = self._generate_env_elements()
+
+        # generate the path 
+        path = planner.plan(
+            start_coords=robot.position,
+            goal_coords=robot.pos_goal
+        )
+        robot.add_path(path["path_world"])
 
         # create environment
         env = RobotBaseEnv(
@@ -178,6 +195,7 @@ class EnvGenerator:
         # create visualizer
         visualizer = VisualizeCBF(
             pos_goal=robot.pos_goal,
+            planner=planner,
             obstacles=obstacles,
             show_plot=False
         )
@@ -192,15 +210,20 @@ class EnvGenerator:
         else:
             raise f'Incorrect CBF mode ({self.config.cbf_mode})'
 
-        return env, visualizer, config, cbf
+        return env, visualizer, config, cbf, planner
 
     @logger.catch
     def _run_env(self, filename='env.png'):
         # function to run the environment
         # generate the environment
-        env, visualizer, config, cbf = self._generate_env()
+        env, visualizer, config, cbf, planner = self._generate_env()
         max_timesteps = env.fps * self.config.max_duration_of_simulation
         timesteps = 0
+
+         # add path and costmap to visualizer
+        visualizer.data["path"] = env.robot_base.path
+        visualizer.data["costmap"] = planner.costmap
+        visualizer.data["display_map"] = planner.compute_distance_map(start=env.robot_base.position)
 
         # run env
         while env.running and timesteps < max_timesteps:
@@ -239,7 +262,7 @@ class EnvGenerator:
             # increment timestep
             timesteps += 1
         
-        if env.robot_base.check_goal_reached():
+        if env.robot_base.check_goal_reached(tolerance=self.config.grid_size+0.01):
             logger.success(f"Goal reached in {timesteps} timesteps.")
             goal_reached = True
         else:
@@ -295,9 +318,10 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=100,
+        number_of_simulations=10,
         max_number_of_obstacles=10,
         environment_size=(20, 20),
+        grid_size=0.5,
         max_obstacle_size={
             'circle': 3.0,
             'rectangle': (3.0, 3.0)

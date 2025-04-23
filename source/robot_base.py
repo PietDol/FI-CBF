@@ -45,7 +45,10 @@ class RobotBase:
         if reached:
             self.path_idx = min([len(self.path) - 1, self.path_idx + 1])
 
-        return self.path[self.path_idx]
+        if self.path_idx == len(self.path) - 1:
+            return self.pos_goal
+        else:
+            return self.path[self.path_idx]
     
     def add_path(self, path):
         # method to add the path

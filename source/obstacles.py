@@ -107,7 +107,7 @@ class RectangleObstacle(Obstacle):
         row_min = max(row - dy, 0)
         row_max = min(row + dy, costmap.shape[0])
         col_min = max(col - dx, 0)
-        col_max = min(col + dx + 1, costmap.shape[1])
+        col_max = min(col + dx, costmap.shape[1])
 
         costmap[row_min:row_max, col_min:col_max] = np.inf
         return costmap
@@ -182,6 +182,8 @@ class CircleObstacle(Obstacle):
         gy = (self.pos_center[1] + origin_offset[1] * grid_size) / grid_size
         col = int(np.round(gx))  # x-axis → col
         row = int(np.round(gy))  # y-axis → row
+        rows = costmap.shape[0]
+        cols = costmap.shape[1]
 
         # Compute radius in grid cells, conservatively round UP
         radius_cells = int(np.ceil(self.radius / grid_size))
@@ -194,10 +196,10 @@ class CircleObstacle(Obstacle):
                 dist = np.linalg.norm(np.array([x, y]) - self.pos_center)
 
                 if dist < self.radius:
-                    costmap[row+r, col+c] = np.inf
-                    costmap[row+r, col-c-1] = np.inf
-                    costmap[row-r-1, col+c] = np.inf
-                    costmap[row-r-1, col-c-1] = np.inf
+                    costmap[min(max(row+r, 0), rows - 1), min(max(col+c, 0), cols - 1)] = np.inf
+                    costmap[min(max(row+r, 0), rows - 1), min(max(col-c-1, 0), cols - 1)] = np.inf
+                    costmap[min(max(row-r-1, 0), rows - 1), min(max(col+c, 0), cols - 1)] = np.inf
+                    costmap[min(max(row-r-1, 0), rows - 1), min(max(col-c-1, 0), cols - 1)] = np.inf
         return costmap
     
     def h(self, z):

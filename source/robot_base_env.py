@@ -62,8 +62,6 @@ class RobotBaseEnv(BaseEnv):
         return np.concatenate((self.robot_base.position, self.robot_base.velocity))
     
     def get_desired_state(self):
-        # TODO: here we need to add the planner
-        # return self.robot_base.pos_goal
         return self.robot_base.inter_pos_goal()
     
     def apply_control(self, u) -> None:

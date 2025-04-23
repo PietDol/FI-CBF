@@ -34,10 +34,10 @@ class Node:
 class AStarPlanner:
     def __init__(self, costmap_size, grid_size=1, obstacles=[], diagonal_movement=True, heuristic='euclidean'):
         self.obstacles = obstacles
-        self.grid_size = grid_size
+        self.grid_size = grid_size  
         self.origin_offset = np.array(costmap_size) / (2 * self.grid_size)
 
-        # create costmap
+        # create costmap costmap size is given in m
         self.costmap = self.create_costmap(costmap_size)
         self.rows, self.cols = self.costmap.shape
 
