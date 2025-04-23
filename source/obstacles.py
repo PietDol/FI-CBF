@@ -80,7 +80,7 @@ class RectangleObstacle(Obstacle):
         drawing = pygame.Rect(pos_x, pos_y, self.width_px, self.height_px)
         pygame.draw.rect(screen, color, drawing)
 
-    def pyplot_drawing(self, opacity):
+    def pyplot_drawing(self, opacity=1.0):
         cx, cy = self.pos_center
         bottom_left_x = cx - self.width / 2
         bottom_left_y = cy - self.height / 2
@@ -107,7 +107,7 @@ class RectangleObstacle(Obstacle):
         row_min = max(row - dy, 0)
         row_max = min(row + dy, costmap.shape[0])
         col_min = max(col - dx, 0)
-        col_max = min(col + dx, costmap.shape[1])
+        col_max = min(col + dx + 1, costmap.shape[1])
 
         costmap[row_min:row_max, col_min:col_max] = np.inf
         return costmap

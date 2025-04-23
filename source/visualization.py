@@ -3,17 +3,21 @@ import matplotlib.patches as patches
 import numpy as np
 
 class VisualizeCBF:
-    def __init__(self, pos_goal, obstacles=[], show_plot=True):
+    def __init__(self, pos_goal, planner, obstacles=[], show_plot=True):
         self._empty_dataset = {
             'control_input': {
                 'u_cbf': [],
                 'u_nominal': []
             },
             'h':[],
-            'robot_pos': []
+            'robot_pos': [],
+            'path': [],
+            'costmap': [], 
+            'display_map': []
         }
         self.data = self._empty_dataset
         self.pos_goal = pos_goal
+        self.planner = planner
         self.obstacles = obstacles
         self.show_plot = show_plot
     
@@ -71,34 +75,83 @@ class VisualizeCBF:
             axes[i].grid(True)
 
         return axes  # Return the modified axes
+    
+    def plot_costmap_from_data(self, ax, start=None):
+        costmap = self.data['costmap']
+        path = np.array(self.data['path'])
+        obstacle_mask = np.isinf(costmap)
 
-    def plot_robot_trajectory(self, ax=None):
+        # Display map (avoid inf for colormap)
+        display_map = self.data['display_map'].copy()
+        if np.any(obstacle_mask):
+            max_val = np.max(display_map[~obstacle_mask])
+            display_map[obstacle_mask] = max_val + 1
+            vmax = max_val + 1
+            vmin = np.min(display_map[~obstacle_mask])
+        else:
+            vmax = np.max(display_map)
+            vmin = np.min(display_map)
+
+        # Show distance/cost map
+        extent = [
+            *self.planner.grid_to_world((0, 0)),                     # lower left (x_min, y_min)
+            *self.planner.grid_to_world((self.planner.rows, self.planner.cols))      # upper right (x_max, y_max)
+        ]
+        extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow: [x_min, x_max, y_min, y_max]
+        ax.imshow(display_map, cmap='viridis', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
+
+        # Overlay obstacles as black
+        for obstacle in self.obstacles:
+            drawing = obstacle.pyplot_drawing(opacity=0.7)
+            ax.add_patch(drawing)
+
+        # Plot path
+        ax.plot(path[:, 0], path[:, 1], color='cyan', linewidth=2, label='Path')
+
+        # Plot start and goal
+        if start is not None:
+            ax.plot(start[0], start[1], 'ro', label='Start')
+
+        ax.plot(self.pos_goal[0], self.pos_goal[1], 'go', label='Goal')
+
+        ax.set_title("Costmap and A* Path")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.grid(True)
+        ax.axis('equal')
+        ax.legend()
+        return ax
+
+    def plot_robot_trajectory(self, axes=None):
         # Convert list to array
         robot_pos = np.array(self.data['robot_pos'])
-
-        # Create axis if not provided
-        if ax is None:
-            fig, ax = plt.subplots()
+        path = np.array(self.data['path'])
 
         # Plot robot trajectory
-        ax.plot(robot_pos[:, 0], robot_pos[:, 1], label='Robot trajectory')
-        ax.plot(self.pos_goal[0], self.pos_goal[1], color='green', marker='o', label='Desired position')
-        ax.plot(robot_pos[0, 0], robot_pos[0, 1], color='red', marker='o', label='Start position')
+        axes[0].plot(path[:, 0], path[:, 1], label='Planned trajectory')
+        axes[0].plot(robot_pos[:, 0], robot_pos[:, 1], label='Robot trajectory')
+        axes[0].plot(self.pos_goal[0], self.pos_goal[1], color='green', marker='o', label='Desired position')
+        axes[0].plot(robot_pos[0, 0], robot_pos[0, 1], color='red', marker='o', label='Start position')
 
         # Add obstacles
         for obstacle in self.obstacles:
             drawing = obstacle.pyplot_drawing()
-            ax.add_patch(drawing)
+            axes[0].add_patch(drawing)
 
         # Customize the plot
-        ax.set_title('Robot trajectory over time')
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.axis('equal')
-        ax.legend()
-        ax.grid(True)
+        axes[0].set_title('Robot trajectory over time')
+        axes[0].set_xlabel('x')
+        axes[0].set_ylabel('y')
+        axes[0].axis('equal')
+        axes[0].legend()
+        axes[0].grid(True)
 
-        return ax  # Return the modified axis
+        axes[1] = self.plot_costmap_from_data(
+            ax=axes[1],
+            start=robot_pos[0]
+        )
+
+        return axes  # Return the modified axis
 
     
     def create_plot(self, plot_types, filename=''):
@@ -108,10 +161,11 @@ class VisualizeCBF:
         num_cbfs = 'h' in plot_types
         num_colom_cbfs = len(self.data['h'][0]) if 'h' in plot_types and len(self.data['h']) > 0 else 0
         num_robot = 'robot_pos' in plot_types
+        num_trajectory = 2 if 'robot_pos' in plot_types else 0
 
         # Determine number of rows and columns
         num_rows = num_control + num_robot + num_cbfs 
-        num_cols = max([num_colom_cbfs, num_coloms_control, 1])  
+        num_cols = max([num_colom_cbfs, num_coloms_control, num_trajectory])  
 
         # if there are no rows just return
         if num_rows < 1:
@@ -155,11 +209,11 @@ class VisualizeCBF:
 
         # Plot robot trajectory (last row, spanning all columns)
         if num_robot:
-            self.plot_robot_trajectory(ax=axes[ax_idx][0])
+            self.plot_robot_trajectory(axes=axes[ax_idx])
             
             # remove unused subplots
-            if num_cols > 1:
-                for i in range(1, num_cols):
+            if num_cols > 2:
+                for i in range(2, num_cols):
                     fig.delaxes(axes[ax_idx][i])
 
         plt.tight_layout()

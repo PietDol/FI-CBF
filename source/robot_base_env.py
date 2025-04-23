@@ -13,6 +13,7 @@ from robot_base import RobotBase
 from visualization import VisualizeCBF
 from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
 from env_config import EnvConfig
+from a_star import AStarPlanner
 
 import jax.numpy as jnp
 
@@ -62,7 +63,8 @@ class RobotBaseEnv(BaseEnv):
     
     def get_desired_state(self):
         # TODO: here we need to add the planner
-        return self.robot_base.pos_goal
+        # return self.robot_base.pos_goal
+        return self.robot_base.inter_pos_goal()
     
     def apply_control(self, u) -> None:
         # just add the control input to the 
@@ -152,12 +154,13 @@ def main():
 
     # create robot
     pos_goal = np.array([4, 0])
+    start = np.array([-7, 0.01])
     robot_base = RobotBase(
         width=1,
         height=1.5,
         env_config=env_config,
         pos_goal=pos_goal,
-        pos_center_start=np.array([-7, 0.01]),
+        pos_center_start=start,
         safety_margin=0.1
     )
 
@@ -169,6 +172,15 @@ def main():
         # RectangleObstacle(3, 1, np.array([2, 2.5]), env_config, robot_base),
         # RectangleObstacle(3, 1, np.array([2, -2.5]), env_config, robot_base)
     ]
+
+    # create path
+    planner = AStarPlanner(
+        costmap_size=(20, 20),
+        grid_size=1,
+        obstacles=obstacles
+    )
+    path = planner.plan(start, pos_goal)
+    robot_base.add_path(path["path_world"])
 
     # create environment
     env = RobotBaseEnv(
@@ -190,7 +202,12 @@ def main():
         raise f'Incorrect mode!'
     
     # create the visualizer object
-    visualizer = VisualizeCBF(pos_goal, obstacles)
+    visualizer = VisualizeCBF(pos_goal, planner, obstacles)
+
+    # add path and costmap to visualizer
+    visualizer.data["path"] = path["path_world"]
+    visualizer.data["costmap"] = planner.costmap
+    visualizer.data["display_map"] = planner.compute_distance_map(start=start)
 
     while env.running:
         current_state = env.get_state()

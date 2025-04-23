@@ -93,7 +93,6 @@ class AStarPlanner:
 
         open_set = []
         heapq.heappush(open_set, (0, start_node))
-        came_from = {}
 
         start_node.g = 0
         start_node.h = self.heuristic_cost(start_node.coords(), goal_node.coords())
@@ -105,7 +104,10 @@ class AStarPlanner:
             _, current = heapq.heappop(open_set)
 
             if (current.x, current.y) == (goal_node.x, goal_node.y):
-                return self.reconstruct_path(current)
+                return {
+                    "path_grid": self.reconstruct_path_grid(current),
+                    "path_world":self.reconstruct_path_world(current)
+                }
 
             for dx, dy in self.directions:
                 nx, ny = current.x + dx, current.y + dy
@@ -129,13 +131,23 @@ class AStarPlanner:
                     heapq.heappush(open_set, (neighbor.f, neighbor))
         return None  # No path found
 
-    def reconstruct_path(self, current):
-        path = []
+    def reconstruct_path_grid(self, current):
+        path_grid = []
         while current:
-            path.append(current.coords())
+            path_grid.append(current.coords())
             current = current.parent
-        path.reverse()
-        return path
+        path_grid.reverse()
+
+        return path_grid
+
+    def reconstruct_path_world(self, current):
+        path_world = []
+        while current:
+            path_world.append(self.grid_to_world(current.coords()))
+            current = current.parent
+        path_world.reverse()
+
+        return path_world
     
     def compute_distance_map(self, start, metric='euclidean'):
         """Compute a distance-from-start costmap for visualization."""
@@ -222,8 +234,10 @@ class AStarPlanner:
 
 
 if __name__ == "__main__":
-    start = (-3, -6)
-    goal = (5, 5)
+    start = (-7, 0.01)
+    goal = (4, 0)
+    # goal = (-7, 0.01)
+    # start = (4, 0)
     env_config = EnvConfig(
         pixels_per_meter=50 * np.array([1, -1]),
         screen_width=800,
@@ -249,7 +263,12 @@ if __name__ == "__main__":
         env_config=env_config,
         robot=robot
     )
-    obstacles = [circ_obstacle]
+    # obstacles = [rect_obstacle, circ_obstacle]
+    obstacles = [
+        RectangleObstacle(1, 6, np.array([0, 0.0]), env_config, robot),
+        # CircleObstacle(2, np.array([0.0, 0.0]), env_config, robot),
+        # CircleObstacle(1, np.array([4.0, 4.0]), env_config, robot)
+    ]
 
     planner = AStarPlanner(
         costmap_size=(20, 20),
@@ -258,5 +277,4 @@ if __name__ == "__main__":
     )
 
     path = planner.plan(start, goal)
-
-    planner.plot_costmap(path=path, start=start, goal=goal)
+    planner.plot_costmap(path=path["path_grid"], start=start, goal=goal)
