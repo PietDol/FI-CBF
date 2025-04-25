@@ -92,23 +92,21 @@ class RectangleObstacle(Obstacle):
     
     def add_obstacle_to_costmap(self, costmap, origin_offset, grid_size=1):
         # adds this rectangular obstacle to the given costmap.
-        # Convert world center to grid indices (row = y, col = x)
-        gx = (self.pos_center[0] + origin_offset[0] * grid_size) / grid_size
-        gy = (self.pos_center[1] + origin_offset[1] * grid_size) / grid_size
+        # calculate the x_min, x_max, y_min and y_max values
+        x_min = self.pos_center[0] - (self.width / 2)
+        x_max = self.pos_center[0] + (self.width / 2)
+        y_min = self.pos_center[1] - (self.height / 2)
+        y_max = self.pos_center[1] - (self.height / 2)
 
-        col = int(np.floor(gx))  # x-axis → col
-        row = int(np.floor(gy))  # y-axis → row
+        # convert to grid (int does the floor conversion)
+        # x-axis -> cols
+        # y-axis -> rows
+        col_min = max(int((x_min + origin_offset[0] * grid_size) / grid_size), 0)
+        col_max = min(int((x_max + origin_offset[0] * grid_size) / grid_size), costmap.shape[1])
+        row_min = max(int((y_min + origin_offset[1] * grid_size) / grid_size), 0)
+        row_max = min(int((y_max + origin_offset[1] * grid_size) / grid_size), costmap.shape[0])
 
-        # Half size in cells
-        dx = int(np.ceil(self.width / (2 * grid_size)))
-        dy = int(np.ceil(self.height / (2 * grid_size)))
-
-        # Bounds (make sure they're within costmap)
-        row_min = max(row - dy, 0)
-        row_max = min(row + dy, costmap.shape[0])
-        col_min = max(col - dx, 0)
-        col_max = min(col + dx, costmap.shape[1])
-
+        # set the obstacles to inf costs
         costmap[row_min:row_max, col_min:col_max] = np.inf
         return costmap
 

@@ -22,7 +22,7 @@ class Node:
     
     def grid_to_world(self, idx):
         ij = np.array(idx[::-1])
-        pos = (ij * self.grid_size) - (np.array(self.origin_offset) * self.grid_size)
+        pos = (ij * self.grid_size) + (0.5 * self.grid_size) - (np.array(self.origin_offset) * self.grid_size)
         return tuple(pos)
 
     def __lt__(self, other):  # Needed for heapq
@@ -79,7 +79,7 @@ class AStarPlanner:
     def grid_to_world(self, idx):
         """Convert grid index (i, j) to world coordinate (x, y) in meters."""
         ij = np.array(idx[::-1])
-        pos = (ij * self.grid_size) - (np.array(self.origin_offset) * self.grid_size)
+        pos = (ij * self.grid_size) + (0.5 * self.grid_size) - (np.array(self.origin_offset) * self.grid_size)
         return tuple(pos)
 
     def plan(self, start_coords, goal_coords):

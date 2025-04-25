@@ -55,15 +55,34 @@ class EnvGenerator:
         self.pygame_screen = False  # we dont want the pygame screen to pops up
         self.work_dir_available = self._create_work_dir()
 
+        # log all the important information
+        self.log_information()
+
     def _create_work_dir(self):
         # function to create work_dir
+        _foldername = self.config.work_dir.split("/")[-1]
         try:
-            os.makedirs(f"{self.config.work_dir}/simulation_results", exist_ok=False)
-            logger.info(f"New simulation is started. Workdir: {self.config.work_dir}")
+            if _foldername == 'debug':
+                os.makedirs(f"{self.config.work_dir}/simulation_results", exist_ok=True)
+            else:
+                os.makedirs(f"{self.config.work_dir}/simulation_results", exist_ok=False)
+            logger.info("New simulation is started!")
             return True
         except FileExistsError:
             logger.error(f"Directory already exists: {self.config.work_dir}")
             return False
+    
+    def log_information(self):
+        logger.info(f"Workdir: {self.config.work_dir}")
+        logger.info(f"Environment size: {self.config.environment_size}")
+        logger.info(f"Grid size: {self.config.grid_size} m")
+        logger.info(f"Max duration for simulation: {self.config.max_duration_of_simulation} s")
+        logger.info(f"Minimum distance to the goal: {self.config.min_goal_distance} m")
+        logger.info(f"Robot size: {self.config.robot_size}")
+        logger.info(f"Safety margin: {self.config.safety_margin}")
+        logger.info(f"Max number of obstascles: {self.config.max_number_of_obstacles}")
+        for key, val in self.config.max_obstacle_size.items():
+            logger.info(f"Max obstacle size for {key}: {val} m")
     
     def _generate_goal(self, robot_pos, max_tries=1000):
         cx, cy = robot_pos
@@ -182,6 +201,9 @@ class EnvGenerator:
             start_coords=robot.position,
             goal_coords=robot.pos_goal
         )
+        if path is None:
+            # no path found
+            return None, None, None, None, None
         robot.add_path(path["path_world"])
 
         # create environment
@@ -217,6 +239,9 @@ class EnvGenerator:
         # function to run the environment
         # generate the environment
         env, visualizer, config, cbf, planner = self._generate_env()
+        if env is None:
+            logger.error(f"No path found! Skip this environment!")
+            return None
         max_timesteps = env.fps * self.config.max_duration_of_simulation
         timesteps = 0
 
@@ -295,33 +320,38 @@ class EnvGenerator:
 
         goal_reached = 0
         goal_not_reached = 0
+        error = 0
 
         # iterate for all the different elements
         for i in range(self.config.number_of_simulations):
             logger.info(f"Start environment {(i+1)}/{self.config.number_of_simulations}")
             succeed = self._run_env(f"env_{i}.png")
 
-            if succeed:
+            if succeed and isinstance(succeed, bool):
                 goal_reached += 1
-            elif not succeed:
+            elif not succeed and isinstance(succeed, bool):
                 goal_not_reached += 1
+            elif succeed is None:
+                # an error occured
+                error += 1
 
         
         logger.success(f"Simulations done: {self.config.number_of_simulations} executed.")
         logger.info(f"Number goal reached: {goal_reached}")
         logger.info(f"Number goal not reached: {goal_not_reached}")
+        logger.info(f"Number error: {error}")
 
 
 def main():
-    directory = './runs/run_1'
+    directory = './runs/debug'
     
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=10,
+        number_of_simulations=3,
         max_number_of_obstacles=10,
         environment_size=(20, 20),
-        grid_size=0.5,
+        grid_size=0.1,
         max_obstacle_size={
             'circle': 3.0,
             'rectangle': (3.0, 3.0)
@@ -334,11 +364,12 @@ def main():
         work_dir=directory
     )
     
-    # create the environment generator class
-    envs = EnvGenerator(config=config)
-
     # create logger
     logger.add(f"{directory}/simulations.log", rotation="10 MB")
+
+    # create the environment generator class
+    
+    envs = EnvGenerator(config=config)
 
     # apply the simulations
     envs()
