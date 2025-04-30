@@ -151,11 +151,11 @@ def main():
     )
 
     # create robot
-    pos_goal = np.array([4, 0])
-    start = np.array([-7, 0.01])
+    pos_goal = np.array([10.0, 9.27])
+    start = np.array([-1.44, -1.75])
     robot_base = RobotBase(
         width=1,
-        height=1.5,
+        height=1,
         env_config=env_config,
         pos_goal=pos_goal,
         pos_center_start=start,
@@ -164,17 +164,20 @@ def main():
 
     # create obstacles
     obstacles = [
-        # RectangleObstacle(1, 6, np.array([0, 0.0]), env_config, robot_base),
-        CircleObstacle(2, np.array([0.0, 0.0]), env_config, robot_base),
-        CircleObstacle(1, np.array([4.0, 4.0]), env_config, robot_base)
-        # RectangleObstacle(3, 1, np.array([2, 2.5]), env_config, robot_base),
-        # RectangleObstacle(3, 1, np.array([2, -2.5]), env_config, robot_base)
+        # RectangleObstacle(1, 6, np.array([0, 0.0]), env_config, robot_base, 0),
+        # CircleObstacle(2, np.array([0.0, 0.0]), env_config, robot_base, 1),
+        # CircleObstacle(1, np.array([4.0, 4.0]), env_config, robot_base, 2)
+        # RectangleObstacle(3, 1, np.array([2, 2.5]), env_config, robot_base, 3),
+        # RectangleObstacle(3, 1, np.array([2, -2.5]), env_config, robot_base, 4)
+        # RectangleObstacle(2.67, 2.22, np.array([7.77, -3.93]), env_config, robot_base, 5),
+        # RectangleObstacle(2.37, 1.23, np.array([7.13, -0.42]), env_config, robot_base, 6),
+        RectangleObstacle(1.64, 2.8, np.array([-2.24, -4.37]), env_config, robot_base, 7)
     ]
 
     # create path
     planner = AStarPlanner(
         costmap_size=(20, 20),
-        grid_size=1,
+        grid_size=0.1,
         obstacles=obstacles
     )
     path = planner.plan(start, pos_goal)

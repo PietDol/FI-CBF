@@ -41,7 +41,7 @@ class Obstacle(ABC):
 
 class RectangleObstacle(Obstacle):
     # object for obstacles
-    def __init__(self, width, height, pos_center, env_config: EnvConfig, robot: RobotBase):
+    def __init__(self, width, height, pos_center, env_config: EnvConfig, robot: RobotBase, id=int):
         self.width = width                  # in m
         self.height = height                # in m
         self.pos_center = pos_center        # in m shape (2,)
@@ -49,6 +49,7 @@ class RectangleObstacle(Obstacle):
         self.screen_width = env_config.screen_width         # in px
         self.screen_height = env_config.screen_height       # in px
         self.robot = robot                  # to which robot this obstacle is linked
+        self.id = id
     
     @property
     def width_px(self):
@@ -96,57 +97,59 @@ class RectangleObstacle(Obstacle):
         x_min = self.pos_center[0] - (self.width / 2)
         x_max = self.pos_center[0] + (self.width / 2)
         y_min = self.pos_center[1] - (self.height / 2)
-        y_max = self.pos_center[1] - (self.height / 2)
+        y_max = self.pos_center[1] + (self.height / 2)
 
         # convert to grid (int does the floor conversion)
         # x-axis -> cols
         # y-axis -> rows
-        col_min = max(int((x_min + origin_offset[0] * grid_size) / grid_size), 0)
-        col_max = min(int((x_max + origin_offset[0] * grid_size) / grid_size), costmap.shape[1])
-        row_min = max(int((y_min + origin_offset[1] * grid_size) / grid_size), 0)
-        row_max = min(int((y_max + origin_offset[1] * grid_size) / grid_size), costmap.shape[0])
+        col_min = min(max(int((x_min + origin_offset[0] * grid_size) / grid_size), 0), costmap.shape[1])
+        col_max = max(min(int((x_max + origin_offset[0] * grid_size) / grid_size), costmap.shape[1]), 0)
+        row_min = min(max(int((y_min + origin_offset[1] * grid_size) / grid_size), 0), costmap.shape[0])
+        row_max = max(min(int((y_max + origin_offset[1] * grid_size) / grid_size), costmap.shape[0]), 0)
 
         # set the obstacles to inf costs
         costmap[row_min:row_max, col_min:col_max] = np.inf
         return costmap
 
-    def h(self, z):
-        px, py, _, _ = z
+    def h(self, Z):
+        # batched 
+        if Z.ndim == 1:
+            Z = Z[None, :]  # Reshape to (1, 4)
 
-        # get the closest point
-        closest_point = self.find_closest_point_to_obstacle(px, py)
+        # Z: shape (N, 4)
+        px = Z[:, 0]
+        py = Z[:, 1]
 
-        # compute vector from closest point to robot
-        vector_closest_to_robot = jnp.array([px, py]) - closest_point
+        closest_point = self.find_closest_point_to_obstacle(px, py)  # (N, 2)
 
-        # normalize it
-        norm = jnp.linalg.norm(vector_closest_to_robot) + 1e-6
-        normal_vector = vector_closest_to_robot / norm  # add small term to prevent division by zero
+        vectors = jnp.stack([px, py], axis=1) - closest_point  # (N, 2)
+        norm = jnp.linalg.norm(vectors, axis=1, keepdims=True) + 1e-6
+        normal_vectors = vectors / norm
 
-        # calculate value for h
-        h_value = jnp.dot(normal_vector, vector_closest_to_robot) - self.robot.radius - self.robot.safety_margin
-        return jnp.array(h_value)
+        h_values = jnp.sum(normal_vectors * vectors, axis=1) - self.robot.radius - self.robot.safety_margin
+        return h_values  # shape (N,)
 
-    def check_collision(self, robot: RobotBase):
+    def check_collision(self, robot: RobotBase, safety_margin=0.0):
         # function to check if the robot is in collision with this obstacle
         # get the centers of the robot and the obstacle
         cx_robot, cy_robot = robot.position 
         cx_obstacle, cy_obstacle = self.pos_center
 
         # Check x-axis overlap
-        x_overlap = abs(cx_robot - cx_obstacle) <= (robot.width / 2) + (self.width / 2)
+        x_overlap = abs(cx_robot - cx_obstacle) <= (robot.width / 2) + (self.width / 2) + safety_margin
 
         # Check y-axis overlap
-        y_overlap = abs(cy_robot - cy_obstacle) <= (robot.height / 2) + (self.height / 2)
+        y_overlap = abs(cy_robot - cy_obstacle) <= (robot.height / 2) + (self.height / 2) + safety_margin
 
         return x_overlap and y_overlap
     
-    def find_closest_point_to_obstacle(self, cx_robot, cy_robot):
-        # function to find the closest point between the obstacles edge and the robot
+    def find_closest_point_to_obstacle(self, px, py):
+        # batched
+        # px, py: (N,)
         cx_obstacle, cy_obstacle = self.pos_center
-        closest_x = jnp.clip(cx_robot, cx_obstacle - (self.width / 2), cx_obstacle + (self.width / 2))
-        closest_y = jnp.clip(cy_robot, cy_obstacle - (self.height / 2), cy_obstacle + (self.height / 2))
-        return jnp.array([closest_x, closest_y])
+        closest_x = jnp.clip(px, cx_obstacle - (self.width / 2), cx_obstacle + (self.width / 2))
+        closest_y = jnp.clip(py, cy_obstacle - (self.height / 2), cy_obstacle + (self.height / 2))
+        return jnp.stack([closest_x, closest_y], axis=1)  # (N, 2)
     
     def check_goal_position(self, robot: RobotBase, extra_safety_margin=0.5):
         # check if the goal position is feasible
@@ -164,11 +167,12 @@ class RectangleObstacle(Obstacle):
 
 class CircleObstacle(Obstacle):
     # object for circular obstacles
-    def __init__(self, radius, pos_center, env_config: EnvConfig, robot: RobotBase):
+    def __init__(self, radius, pos_center, env_config: EnvConfig, robot: RobotBase, id: int):
         self.radius = radius            # in m
         self.pos_center = pos_center    # in m shape (2,)            
         self.env_config = env_config    
         self.robot = robot
+        self.id = id
     
     def add_obstacle_to_costmap(self, costmap, origin_offset, grid_size=1):
         """
@@ -200,11 +204,18 @@ class CircleObstacle(Obstacle):
                     costmap[min(max(row-r-1, 0), rows - 1), min(max(col-c-1, 0), cols - 1)] = np.inf
         return costmap
     
-    def h(self, z):
-        px, py, _, _ = z
-        delta = jnp.array([px, py]) - self.pos_center
-        h = jnp.dot(delta, delta) - (self.robot.radius + self.radius + self.robot.safety_margin)**2
-        return h
+    def h(self, Z):
+        # batched
+        if Z.ndim == 1:
+            Z = Z[None, :]  # Reshape to (1, 4)
+        
+        # Z: shape (N, 4)
+        px = Z[:, 0]
+        py = Z[:, 1]
+        delta = jnp.stack([px, py], axis=1) - self.pos_center  # (N, 2)
+
+        h_values = jnp.sum(delta**2, axis=1) - (self.robot.radius + self.radius + self.robot.safety_margin)**2
+        return h_values  # shape (N,)
 
     def pygame_drawing(self, screen, color):
         radius_px = int(self.env_config.pixels_per_meter[0] * self.radius)
@@ -216,10 +227,10 @@ class CircleObstacle(Obstacle):
         circle = patches.Circle(self.pos_center, self.radius, edgecolor='red', facecolor='black', alpha=opacity)
         return circle
 
-    def check_collision(self, robot: RobotBase):
+    def check_collision(self, robot: RobotBase, safety_margin=0.0):
         # checks whehter the robot collides with this object
         distance = np.linalg.norm(np.array(robot.position) - np.array(self.pos_center))
-        return distance <= (robot.radius + self.radius)
+        return distance <= (robot.radius + self.radius + safety_margin)
 
     def check_goal_position(self, robot: RobotBase, extra_safety_margin=0.5):
         # check if the goal position is feasible

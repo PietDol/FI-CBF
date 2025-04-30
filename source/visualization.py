@@ -13,7 +13,8 @@ class VisualizeCBF:
             'robot_pos': [],
             'path': [],
             'costmap': [], 
-            'display_map': []
+            'display_map': [],
+            'cbf_costmap': []
         }
         self.data = self._empty_dataset
         self.pos_goal = pos_goal
@@ -98,7 +99,7 @@ class VisualizeCBF:
             *self.planner.grid_to_world((self.planner.rows, self.planner.cols))      # upper right (x_max, y_max)
         ]
         extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow: [x_min, x_max, y_min, y_max]
-        ax.imshow(display_map, cmap='viridis', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
+        img = ax.imshow(display_map, cmap='viridis', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
 
         # Overlay obstacles as black
         for obstacle in self.obstacles:
@@ -106,7 +107,7 @@ class VisualizeCBF:
             ax.add_patch(drawing)
 
         # Plot path
-        ax.plot(path[:, 0], path[:, 1], color='cyan', linewidth=2, label='Path')
+        ax.plot(path[:, 0], path[:, 1], color='cyan', label='Planned traj')
 
         # Plot start and goal
         if start is not None:
@@ -120,6 +121,60 @@ class VisualizeCBF:
         ax.grid(True)
         ax.axis('equal')
         ax.legend()
+
+        fig = ax.get_figure()  # get the parent figure of this axis
+        cbar = fig.colorbar(img, ax=ax)
+        cbar.set_label("Distance from start", rotation=270, labelpad=15)
+
+        return ax
+    
+    def plot_cbf_costmap_from_data(self, ax):
+        cbf_costmap = np.array(self.data['cbf_costmap'])
+        path = np.array(self.data['path'])
+        robot_pos = np.array(self.data['robot_pos'])
+
+        # Basic min/max values for colormap
+        vmax = np.max(cbf_costmap)
+        vmin = np.min(cbf_costmap)
+
+        # Define extent in world coordinates
+        extent = [
+            *self.planner.grid_to_world((0, 0)),
+            *self.planner.grid_to_world((self.planner.rows, self.planner.cols))
+        ]
+        extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow
+
+        # Plot costmap
+        img = ax.imshow(cbf_costmap, cmap='plasma', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
+
+        # plot contour for h=0 values
+        X = np.linspace(extent[0], extent[1], cbf_costmap.shape[1])
+        Y = np.linspace(extent[2], extent[3], cbf_costmap.shape[0])
+        X, Y = np.meshgrid(X, Y)
+
+        contour = ax.contour(X, Y, cbf_costmap, levels=[0], colors='white', linewidths=2)
+        ax.clabel(contour, fmt='h=0', colors='white', fontsize=9)
+
+        # plot path and real trajectory
+        ax.plot(path[:, 0], path[:, 1], color='cyan', label='Planned traj')
+        ax.plot(robot_pos[:, 0], robot_pos[:, 1], color='lime', label='Robot traj')
+
+        # plot goal and start
+        ax.plot(robot_pos[0, 0], robot_pos[0, 1], 'ro', label='Start')
+        ax.plot(self.pos_goal[0], self.pos_goal[1], 'go', label='Goal')
+
+        ax.set_title("CBF Costmap")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.grid(True)
+        ax.axis('equal')
+        ax.legend()
+
+        # Colorbar
+        fig = ax.get_figure()
+        cbar = fig.colorbar(img, ax=ax)
+        cbar.set_label("CBF cost", rotation=270, labelpad=15)
+
         return ax
 
     def plot_robot_trajectory(self, axes=None):
@@ -128,10 +183,10 @@ class VisualizeCBF:
         path = np.array(self.data['path'])
 
         # Plot robot trajectory
-        axes[0].plot(path[:, 0], path[:, 1], label='Planned trajectory')
-        axes[0].plot(robot_pos[:, 0], robot_pos[:, 1], label='Robot trajectory')
-        axes[0].plot(self.pos_goal[0], self.pos_goal[1], color='green', marker='o', label='Desired position')
-        axes[0].plot(robot_pos[0, 0], robot_pos[0, 1], color='red', marker='o', label='Start position')
+        axes[0].plot(path[:, 0], path[:, 1], label='Planned traj')
+        axes[0].plot(robot_pos[:, 0], robot_pos[:, 1], label='Robot traj')
+        axes[0].plot(self.pos_goal[0], self.pos_goal[1], color='green', marker='o', label='Goal')
+        axes[0].plot(robot_pos[0, 0], robot_pos[0, 1], color='red', marker='o', label='Start')
 
         # Add obstacles
         for obstacle in self.obstacles:
@@ -146,11 +201,14 @@ class VisualizeCBF:
         axes[0].legend()
         axes[0].grid(True)
 
+        # costmap for planner
         axes[1] = self.plot_costmap_from_data(
             ax=axes[1],
             start=robot_pos[0]
         )
 
+        # costmap for cbf
+        axes[2] = self.plot_cbf_costmap_from_data(ax=axes[2])
         return axes  # Return the modified axis
 
     
@@ -161,7 +219,7 @@ class VisualizeCBF:
         num_cbfs = 'h' in plot_types
         num_colom_cbfs = len(self.data['h'][0]) if 'h' in plot_types and len(self.data['h']) > 0 else 0
         num_robot = 'robot_pos' in plot_types
-        num_trajectory = 2 if 'robot_pos' in plot_types else 0
+        num_trajectory = 3 if 'robot_pos' in plot_types else 0
 
         # Determine number of rows and columns
         num_rows = num_control + num_robot + num_cbfs 
@@ -212,8 +270,8 @@ class VisualizeCBF:
             self.plot_robot_trajectory(axes=axes[ax_idx])
             
             # remove unused subplots
-            if num_cols > 2:
-                for i in range(2, num_cols):
+            if num_cols > 3:
+                for i in range(3, num_cols):
                     fig.delaxes(axes[ax_idx][i])
 
         plt.tight_layout()

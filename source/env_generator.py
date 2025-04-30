@@ -4,6 +4,7 @@ from env_config import EnvConfig
 from robot_base_env import RobotBaseEnv, pd_controller
 from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
 from robot_base import RobotBase
+from cbf_costmap import CBFCostmap
 from a_star import AStarPlanner
 from visualization import VisualizeCBF
 from cbfpy import CBF, CLFCBF
@@ -25,6 +26,7 @@ class EnvGeneratorConfig:
                  work_dir: str, 
                  robot_size=(1, 1),
                  safety_margin=0.0,
+                 cbf_reduction='min',
                  cbf_mode=0):
         self.number_of_simulations = number_of_simulations
         self.max_number_of_obstacles = max_number_of_obstacles
@@ -36,6 +38,7 @@ class EnvGeneratorConfig:
         self.work_dir = work_dir
         self.robot_size = robot_size
         self.safety_margin = safety_margin
+        self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
         self.cbf_mode = cbf_mode
 
 class EnvGenerator:
@@ -80,6 +83,7 @@ class EnvGenerator:
         logger.info(f"Minimum distance to the goal: {self.config.min_goal_distance} m")
         logger.info(f"Robot size: {self.config.robot_size}")
         logger.info(f"Safety margin: {self.config.safety_margin}")
+        logger.info(f"CBF reduction mode: {self.config.cbf_reduction}")
         logger.info(f"Max number of obstascles: {self.config.max_number_of_obstacles}")
         for key, val in self.config.max_obstacle_size.items():
             logger.info(f"Max obstacle size for {key}: {val} m")
@@ -105,11 +109,11 @@ class EnvGenerator:
         # checks if there is a collision between robot and obstacles
         obs_to_keep = []
         for i, obstacle in enumerate(obstacles):
-            collision = obstacle.check_collision(robot)
+            collision = obstacle.check_collision(robot, self.config.safety_margin)
             goal_feasible = obstacle.check_goal_position(robot)
 
             if generation and (collision or not goal_feasible):
-                logger.info(f"Robot or goal position in collision with obstacle, remove obstacle.")
+                logger.info(f"Robot or goal position in collision with obstacle (id={obstacle.id}), remove obstacle.")
                 obs_to_keep.append(False)
             elif not generation and collision:
                 logger.error(f"Collision between robot and obstacle! Robot position: {robot.position}, obstacle index: {i}")
@@ -125,7 +129,7 @@ class EnvGenerator:
         for i in range(max_tries):
             number_of_obstacles = random.randint(1, self.config.max_number_of_obstacles)
 
-            for _ in range(number_of_obstacles):
+            for i in range(number_of_obstacles):
                 shape = random.choice(["circle", "rectangle"])
                 cx = np.round(random.uniform(-self.x_range, self.x_range), 2)
                 cy = np.round(random.uniform(-self.y_range, self.y_range), 2)
@@ -137,10 +141,11 @@ class EnvGenerator:
                         radius=radius,
                         pos_center=pos_center,
                         env_config=self.env_config,
-                        robot=robot
+                        robot=robot,
+                        id=i
                     )
 
-                    logger.info(f"Generated CircleObstacle - center: {pos_center}, radius: {radius}")
+                    logger.info(f"Generated CircleObstacle (id={i}) - center: {pos_center}, radius: {radius}")
                 elif shape == "rectangle":
                     width = np.round(random.uniform(1, self.config.max_obstacle_size["rectangle"][0]), 2)
                     height = np.round(random.uniform(1, self.config.max_obstacle_size["rectangle"][1]), 2)
@@ -149,9 +154,10 @@ class EnvGenerator:
                         height=height,
                         pos_center=pos_center,
                         env_config=self.env_config,
-                        robot=robot
+                        robot=robot,
+                        id=i
                     )
-                    logger.info(f"Generated RectangleObstacle - center: {pos_center}, width: {width}, height: {height}")
+                    logger.info(f"Generated RectangleObstacle (id={i}) - center: {pos_center}, width: {width}, height: {height}")
                 
                 obstacles.append(obstacle)
             
@@ -203,7 +209,7 @@ class EnvGenerator:
         )
         if path is None:
             # no path found
-            return None, None, None, None, None
+            return None, None, None, None, None, None
         robot.add_path(path["path_world"])
 
         # create environment
@@ -231,24 +237,32 @@ class EnvGenerator:
             cbf = CLFCBF.from_config(config)
         else:
             raise f'Incorrect CBF mode ({self.config.cbf_mode})'
+        
+        cbf_costmap = CBFCostmap(
+            costmap_size=self.config.environment_size,
+            grid_size=self.config.grid_size,
+            cbf=config,
+            cbf_reduction=self.config.cbf_reduction
+        )
 
-        return env, visualizer, config, cbf, planner
+        return env, visualizer, config, cbf, planner, cbf_costmap
 
     @logger.catch
     def _run_env(self, filename='env.png'):
         # function to run the environment
         # generate the environment
-        env, visualizer, config, cbf, planner = self._generate_env()
+        env, visualizer, config, cbf, planner, cbf_costmap = self._generate_env()
         if env is None:
             logger.error(f"No path found! Skip this environment!")
             return None
         max_timesteps = env.fps * self.config.max_duration_of_simulation
         timesteps = 0
 
-         # add path and costmap to visualizer
+         # add path and costmaps to visualizer
         visualizer.data["path"] = env.robot_base.path
         visualizer.data["costmap"] = planner.costmap
         visualizer.data["display_map"] = planner.compute_distance_map(start=env.robot_base.position)
+        visualizer.data["cbf_costmap"] = cbf_costmap.costmap
 
         # run env
         while env.running and timesteps < max_timesteps:
@@ -308,7 +322,7 @@ class EnvGenerator:
         else:
             filename = f"{filename.split('.')[0]}_fail.png"
         visualizer.create_plot(['control_input', 'h', 'robot_pos'], f"{self.config.work_dir}/simulation_results/{filename}")
-        logger.info(f"Visualization saved: {filename}")
+        logger.success(f"Visualization saved: {filename}")
 
         # return whether the goal is reached
         return goal_reached
@@ -348,7 +362,7 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=3,
+        number_of_simulations=100,
         max_number_of_obstacles=10,
         environment_size=(20, 20),
         grid_size=0.1,
@@ -361,6 +375,7 @@ def main():
         robot_size=(1, 1),
         safety_margin=0.1,
         cbf_mode=0,
+        cbf_reduction='min',
         work_dir=directory
     )
     

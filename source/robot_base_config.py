@@ -16,13 +16,27 @@ class RobotBaseCBFConfig(CBFConfig):
         # return jnp.block([[jnp.zeros((2, 2))], [jnp.eye(2)]])
         return jnp.block([[jnp.eye(2)], [jnp.zeros((2, 2))]])
     
-    def h_1(self, z):
-        h_values = []
+    def h_1(self, Z, batched=False):
+        # batched
+        if Z.ndim == 1:
+            Z = Z[None, :]  # Reshape to (1, 4)
 
+        # Z: (N, 4)
+        h_values = []
         for obstacle in self.obstacles:
-            h_value = obstacle.h(z)
+            h_value = obstacle.h(Z)  # (N,)
             h_values.append(h_value)
-        return jnp.array(h_values)
+        
+        h_values = jnp.stack(h_values, axis=1)  # (N, num_obstacles)
+
+        if not batched:
+            h_values = jnp.squeeze(h_values, 0)
+        return h_values
+    
+    def alpha_batch(self, h_values):
+        # h_values: (N, num_obstacles)
+        # Apply alpha elementwise
+        return jnp.vectorize(self.alpha)(h_values)
 
     # def h_2(self, z):
     #     h_values = []
