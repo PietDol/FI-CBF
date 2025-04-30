@@ -2,12 +2,12 @@
 from loguru import logger
 from env_config import EnvConfig
 from robot_base_env import RobotBaseEnv, pd_controller
-from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
+from robot_base_config import RobotBaseCBFConfig
 from robot_base import RobotBase
 from cbf_costmap import CBFCostmap
 from a_star import AStarPlanner
 from visualization import VisualizeCBF
-from cbfpy import CBF, CLFCBF
+from cbfpy import CBF
 import random
 from obstacles import RectangleObstacle, CircleObstacle
 import numpy as np
@@ -26,8 +26,7 @@ class EnvGeneratorConfig:
                  work_dir: str, 
                  robot_size=(1, 1),
                  safety_margin=0.0,
-                 cbf_reduction='min',
-                 cbf_mode=0):
+                 cbf_reduction='min'):
         self.number_of_simulations = number_of_simulations
         self.max_number_of_obstacles = max_number_of_obstacles
         self.environment_size = environment_size                        # in m
@@ -39,7 +38,6 @@ class EnvGeneratorConfig:
         self.robot_size = robot_size
         self.safety_margin = safety_margin
         self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
-        self.cbf_mode = cbf_mode
 
 class EnvGenerator:
     # this class is able to do multiple runs behind each other and creates nice logs
@@ -233,14 +231,8 @@ class EnvGenerator:
         )
 
         # create config and cbf based on the mode
-        if self.config.cbf_mode == 0:
-            config = RobotBaseCBFConfig(obstacles, robot)
-            cbf = CBF.from_config(config)
-        elif self.config.cbf_mode == 1:
-            config = RobotBaseCLFCBFConfig(obstacles, robot)
-            cbf = CLFCBF.from_config(config)
-        else:
-            raise f'Incorrect CBF mode ({self.config.cbf_mode})'
+        config = RobotBaseCBFConfig(obstacles, robot)
+        cbf = CBF.from_config(config)
         
         cbf_costmap = CBFCostmap(
             costmap_size=self.config.environment_size,
@@ -274,10 +266,7 @@ class EnvGenerator:
             pos_des = env.get_desired_state()
             
             # calculate nominal control
-            if self.config.cbf_mode == 0:
-                nominal_control = pd_controller(pos_des, current_state[:2], current_state[2:])
-            elif self.config.cbf_mode == 1:
-                nominal_control = config.V_1(current_state)
+            nominal_control = pd_controller(pos_des, current_state[:2], current_state[2:])
             
             # safe data for visualizer
             h = config.h_1(current_state)
@@ -286,12 +275,7 @@ class EnvGenerator:
             visualizer.data['robot_pos'].append(current_state[:2])
 
             # apply safety filter
-            if self.config.cbf_mode == 0:
-                u = cbf.safety_filter(current_state, nominal_control)
-            elif self.config.cbf_mode == 1:
-                pos_des = np.concatenate((pos_des, np.zeros(2)))
-                # no nominal input inserted here, since cbfpy does that under the hood
-                u = cbf.controller(current_state, pos_des)  
+            u = cbf.safety_filter(current_state, nominal_control)
 
             # safe control data for visualizer
             visualizer.data['control_input']['u_cbf'].append(u)
@@ -366,7 +350,7 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=100,
+        number_of_simulations=10,
         max_number_of_obstacles=10,
         environment_size=(20, 20),
         grid_size=0.1,
@@ -378,7 +362,6 @@ def main():
         min_goal_distance=15,
         robot_size=(1, 1),
         safety_margin=0.1,
-        cbf_mode=0,
         cbf_reduction='min',
         work_dir=directory
     )
