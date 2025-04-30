@@ -109,14 +109,18 @@ class EnvGenerator:
         # checks if there is a collision between robot and obstacles
         obs_to_keep = []
         for i, obstacle in enumerate(obstacles):
-            collision = obstacle.check_collision(robot, self.config.safety_margin)
+            if generation:
+                # only add safety margin when generating the obstacles
+                collision = obstacle.check_collision(robot, self.config.safety_margin)
+            else:
+                collision = obstacle.check_collision(robot)
             goal_feasible = obstacle.check_goal_position(robot)
 
             if generation and (collision or not goal_feasible):
                 logger.info(f"Robot or goal position in collision with obstacle (id={obstacle.id}), remove obstacle.")
                 obs_to_keep.append(False)
             elif not generation and collision:
-                logger.error(f"Collision between robot and obstacle! Robot position: {robot.position}, obstacle index: {i}")
+                logger.error(f"Collision between robot and obstacle (id={obstacle.id})! Robot position: {robot.position}")
             elif generation:
                 obs_to_keep.append(True)
 

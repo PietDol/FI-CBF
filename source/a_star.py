@@ -32,7 +32,8 @@ class Node:
         return (self.x, self.y)
 
 class AStarPlanner:
-    def __init__(self, costmap_size, grid_size=1, obstacles=[], diagonal_movement=True, heuristic='euclidean'):
+    def __init__(self, costmap_size, grid_size=1, obstacles=[], diagonal_movement=True):
+        # A* planner with euclidean heuristic
         self.obstacles = obstacles
         self.grid_size = grid_size  
         self.origin_offset = np.array(costmap_size) / (2 * self.grid_size)
@@ -43,7 +44,6 @@ class AStarPlanner:
 
         # set the movements
         self.diagonal_movement = diagonal_movement
-        self.heuristic = heuristic
 
         self.directions = [
             (-1, 0), (1, 0), (0, -1), (0, 1)
@@ -66,10 +66,7 @@ class AStarPlanner:
         return 0 <= x < self.rows and 0 <= y < self.cols and self.costmap[x, y] < np.inf
 
     def heuristic_cost(self, a, b):
-        if self.heuristic == 'manhattan':
-            return abs(a[0] - b[0]) + abs(a[1] - b[1])
-        else:  # Euclidean by default
-            return np.linalg.norm(np.array(a) - np.array(b))
+        return np.linalg.norm(np.array(a) - np.array(b))
     
     def world_to_grid(self, pos):
         """Convert world coordinate (x, y) in meters to grid index (i, j)."""
@@ -149,16 +146,14 @@ class AStarPlanner:
 
         return path_world
     
-    def compute_distance_map(self, start, metric='euclidean'):
+    def compute_distance_map(self, start):
         """Compute a distance-from-start costmap for visualization."""
         distance_map = np.full_like(self.costmap, np.inf, dtype=float)
         for x in range(self.rows):
             for y in range(self.cols):
                 if self.is_valid(x, y):
-                    if metric == 'manhattan':
-                        distance = abs(x - start[0]) + abs(y - start[1])
-                    else:  # Euclidean by default
-                        distance = np.linalg.norm(np.array([x, y]) - np.array(start))
+                    world_cor = self.grid_to_world((x, y))
+                    distance = np.linalg.norm(np.array(world_cor) - np.array(start))
                     distance_map[x, y] = distance
         return distance_map
 
