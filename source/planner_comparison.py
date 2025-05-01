@@ -17,14 +17,8 @@ class PlannerComparison:
         # Add more space at the top to fit row headers nicely
         fig.subplots_adjust(hspace=0.4, top=0.92)
 
-        # Add column titles (set only for top row)
-        # col_titles = ["Robot trajectory over time", "Costmap and A* Path", "CBF Costmap"]
-        # for col, title in enumerate(col_titles):
-        #     axes[0, col].set_title(title, fontsize=14)
-
         # Add row labels using fig.text just *above* the rows
         fig.text(0.5, 0.96, "Firs row A* second row CBF infused A*", ha='center', fontsize=16)
-        # fig.text(0.5, 0.50, "CBF infused A* planner", ha='center', fontsize=16)
 
         # A* planner (row 0)
         if self.a_star_planner.path_world is not None:
