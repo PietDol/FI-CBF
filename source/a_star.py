@@ -52,6 +52,11 @@ class AStarPlanner:
             self.directions += [
                 (-1, -1), (-1, 1), (1, -1), (1, 1)
             ]
+        
+        # attributes for the paths and distance map
+        self.path_grid = None
+        self.path_world = None
+        self.distance_map = None
     
     def create_costmap(self, costmap_size):
         # generate the costmap
@@ -134,6 +139,7 @@ class AStarPlanner:
             path_grid.append(current.coords())
             current = current.parent
         path_grid.reverse()
+        self.path_grid = np.array(path_grid)
 
         return path_grid
 
@@ -143,6 +149,7 @@ class AStarPlanner:
             path_world.append(self.grid_to_world(current.coords()))
             current = current.parent
         path_world.reverse()
+        self.path_world = np.array(path_world)
 
         return path_world
     
@@ -155,6 +162,7 @@ class AStarPlanner:
                     world_cor = self.grid_to_world((x, y))
                     distance = np.linalg.norm(np.array(world_cor) - np.array(start))
                     distance_map[x, y] = distance
+        self.distance_map = distance_map
         return distance_map
 
     def plot_costmap(self, path=None, start=None, goal=None, use_distance_map=True):

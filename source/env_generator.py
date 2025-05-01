@@ -6,6 +6,7 @@ from robot_base_config import RobotBaseCBFConfig
 from robot_base import RobotBase
 from cbf_costmap import CBFCostmap
 from cbf_infused_a_star import CBFInfusedAStar
+from planner_comparison import PlannerComparison
 from a_star import AStarPlanner
 from visualization import VisualizeCBF
 from cbfpy import CBF
@@ -26,10 +27,13 @@ class EnvGeneratorConfig:
                  min_goal_distance: float,
                  work_dir: str, 
                  robot_size=(1, 1),
+                 min_number_of_obstacles=1,
                  safety_margin=0.0,
                  cbf_reduction='min',
-                 cbf_infused_a_star=False):
+                 cbf_infused_a_star=False,
+                 planner_comparison=False):
         self.number_of_simulations = number_of_simulations
+        self.min_number_of_obstacles = min_number_of_obstacles
         self.max_number_of_obstacles = max_number_of_obstacles
         self.environment_size = environment_size                        # in m
         self.grid_size = grid_size                                      # in m
@@ -41,6 +45,7 @@ class EnvGeneratorConfig:
         self.safety_margin = safety_margin
         self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
         self.cbf_infused_a_star = cbf_infused_a_star
+        self.planner_comparison = planner_comparison
 
 class EnvGenerator:
     # this class is able to do multiple runs behind each other and creates nice logs
@@ -86,6 +91,7 @@ class EnvGenerator:
         logger.info(f"Safety margin: {self.config.safety_margin}")
         logger.info(f"CBF reduction mode: {self.config.cbf_reduction}")
         logger.info(f"CBF infused A*: {self.config.cbf_infused_a_star}")
+        logger.info(f"Min number of obstascles: {self.config.min_number_of_obstacles}")
         logger.info(f"Max number of obstascles: {self.config.max_number_of_obstacles}")
         for key, val in self.config.max_obstacle_size.items():
             logger.info(f"Max obstacle size for {key}: {val} m")
@@ -133,7 +139,7 @@ class EnvGenerator:
     def _generate_obstacles(self, robot: RobotBase, max_tries=1000):
         obstacles = []
         for i in range(max_tries):
-            number_of_obstacles = random.randint(1, self.config.max_number_of_obstacles)
+            number_of_obstacles = random.randint(self.config.min_number_of_obstacles, self.config.max_number_of_obstacles)
 
             for i in range(number_of_obstacles):
                 shape = random.choice(["circle", "rectangle"])
@@ -182,7 +188,7 @@ class EnvGenerator:
         robot_y = np.round(random.uniform(-self.y_range, self.y_range), 2)
         pos_goal = self._generate_goal((robot_x, robot_y))
 
-        robot_base = RobotBase(
+        robot = RobotBase(
             width=self.config.robot_size[0],
             height=self.config.robot_size[1],
             env_config=self.env_config,
@@ -190,13 +196,13 @@ class EnvGenerator:
             pos_center_start=np.array([robot_x, robot_y]),
             safety_margin=self.config.safety_margin
         )
-        logger.info(f"Robot start: {robot_base.position}, goal: {robot_base.pos_goal}")
+        logger.info(f"Robot start: {robot.position}, goal: {robot.pos_goal}")
 
         # generate the obstacles
-        obstacles = self._generate_obstacles(robot_base)
+        obstacles = self._generate_obstacles(robot)
 
         # create config and cbf based on the mode
-        config = RobotBaseCBFConfig(obstacles, robot_base)
+        config = RobotBaseCBFConfig(obstacles, robot)
         cbf = CBF.from_config(config)
         
         cbf_costmap = CBFCostmap(
@@ -207,6 +213,7 @@ class EnvGenerator:
         )
 
         # generate the planner
+        planners = {}
         if self.config.cbf_infused_a_star:
             planner = CBFInfusedAStar(
                 costmap_size=self.config.environment_size,
@@ -214,29 +221,32 @@ class EnvGenerator:
                 obstacles=obstacles,
                 cbf_costmap=cbf_costmap
             )
+            planners["CBF infused A*"] = planner
         else:
             planner = AStarPlanner(
                 costmap_size=self.config.environment_size,
                 grid_size=self.config.grid_size,
                 obstacles=obstacles
             )
+            planners["A*"] = planner
+
+        if self.config.planner_comparison:
+            if isinstance(planner, CBFInfusedAStar):
+                other_planner = AStarPlanner(
+                    costmap_size=self.config.environment_size,
+                    grid_size=self.config.grid_size,
+                    obstacles=obstacles
+                )
+                planners["A*"] = other_planner
+            else:
+                other_planner = CBFInfusedAStar(
+                    costmap_size=self.config.environment_size,
+                    grid_size=self.config.grid_size,
+                    obstacles=obstacles,
+                    cbf_costmap=cbf_costmap
+                )
+                planners["CBF infused A*"] = other_planner
         
-        return robot_base, obstacles, planner, config, cbf, cbf_costmap
-    
-    def _generate_env(self):
-        # function to generate the environment
-        robot, obstacles, planner, config, cbf, cbf_costmap = self._generate_env_elements()
-
-        # generate the path 
-        path = planner.plan(
-            start_coords=robot.position,
-            goal_coords=robot.pos_goal
-        )
-        if path is None:
-            # no path found
-            return None, None, None, None, None, None
-        robot.add_path(path["path_world"])
-
         # create environment
         env = RobotBaseEnv(
             env_config=self.env_config,
@@ -245,31 +255,25 @@ class EnvGenerator:
             pygame_screen=self.pygame_screen
         )
 
-        # create visualizer
-        visualizer = VisualizeCBF(
-            pos_goal=robot.pos_goal,
-            planner=planner,
-            obstacles=obstacles,
-            show_plot=False
-        )
-
-        return env, visualizer, config, cbf, planner, cbf_costmap
-
-    @logger.catch
-    def _run_env(self, filename='env.png'):
-        # function to run the environment
-        # generate the environment
-        env, visualizer, config, cbf, planner, cbf_costmap = self._generate_env()
-        if env is None:
-            logger.error(f"No path found! Skip this environment!")
-            return None
+        visualizers = {}
+        for key in planners.keys():
+            visualizer = VisualizeCBF(
+                pos_goal=robot.pos_goal,
+                obstacles=obstacles,
+                show_plot=False
+            )
+            visualizers[key] = visualizer
+        
+        return env, visualizers, config, cbf, planners, cbf_costmap
+    
+    def _run_planner(self, env, visualizer, config, cbf, planner, cbf_costmap, env_folder):
         max_timesteps = env.fps * self.config.max_duration_of_simulation
         timesteps = 0
 
         # add path and costmaps to visualizer
         visualizer.data["path"] = env.robot_base.path
         visualizer.data["costmap"] = planner.costmap
-        visualizer.data["display_map"] = planner.compute_distance_map(start=env.robot_base.position)
+        visualizer.data["distance_map"] = planner.compute_distance_map(start=env.robot_base.position)
         visualizer.data["cbf_costmap"] = cbf_costmap.costmap
 
         # run env
@@ -317,43 +321,106 @@ class EnvGenerator:
         visualizer.data['robot_pos'].append(current_state[:2])
 
         # generate drawings
-        if goal_reached:
-            filename = f"{filename.split('.')[0]}_success.png"
+        if isinstance(planner,  CBFInfusedAStar):
+            planner_filename = 'cbf_infused_a_star'
         else:
-            filename = f"{filename.split('.')[0]}_fail.png"
-        visualizer.create_plot(['control_input', 'h', 'robot_pos'], f"{self.config.work_dir}/simulation_results/{filename}")
+            planner_filename = 'a_star'
+        
+        if goal_reached:
+            filename = f"{env_folder}/{planner_filename}_success.png"
+        else:
+            filename = f"{env_folder}/{planner_filename}_fail.png"
+        visualizer.create_plot(['control_input', 'h', 'robot_pos'], planner, filename)
         logger.success(f"Visualization saved: {filename}")
 
         # return whether the goal is reached
         return goal_reached
+
+    @logger.catch
+    def _run_env(self, env_id):
+        env, visualizers, config, cbf, planners, cbf_costmap = self._generate_env_elements()
+        success = {}
+
+        # create folder for this simulation
+        env_folder = f"{self.config.work_dir}/simulation_results/env_{env_id}"
+        os.makedirs(env_folder, exist_ok=True)
+
+        for planner_name, planner in planners.items():
+            logger.info(f"Planner: {planner_name}")
+
+            # plan the path
+            env.robot_base.reset()
+            path = planner.plan(
+                start_coords=env.robot_base.position,
+                goal_coords=env.robot_base.pos_goal
+            )
+
+            # if no path go to the next planner
+            if path is None:
+                logger.error(f"No path found! Skip this planner!")
+                success[planner_name] = None 
+                continue
+
+            # path found -> add the path, activate the environment and run the planner
+            env.robot_base.add_path(path=planner.path_world)
+            env.running = True
+            goal_reached = self._run_planner(
+                env=env,
+                visualizer=visualizers[planner_name],
+                config=config,
+                cbf=cbf,
+                planner=planner,
+                cbf_costmap=cbf_costmap,
+                env_folder=env_folder
+            )
+            success[planner_name] = goal_reached
+        
+        if self.config.planner_comparison:
+            planner_comparison = PlannerComparison(
+                a_star_planner=planners["A*"],
+                cbf_a_star_planner=planners["CBF infused A*"],
+                visualizers=visualizers
+            )
+            planner_comparison.plot_comparison(f"{env_folder}/planner_comparison.png")
+
+        return success
     
     def __call__(self):
         # check if work_dir is available
         if not self.work_dir_available:
             return
-
-        goal_reached = 0
-        goal_not_reached = 0
-        error = 0
-
+        
+        results_per_planner = {}
+        
         # iterate for all the different elements
         for i in range(self.config.number_of_simulations):
             logger.info(f"Start environment {(i+1)}/{self.config.number_of_simulations}")
-            succeed = self._run_env(f"env_{i}.png")
+            succeed = self._run_env(i+1)
 
-            if succeed and isinstance(succeed, bool):
-                goal_reached += 1
-            elif not succeed and isinstance(succeed, bool):
-                goal_not_reached += 1
-            elif succeed is None:
-                # an error occured
-                error += 1
+            if i == 0:
+                for key in succeed.keys():
+                    results_per_planner[key] = {
+                        'reached': 0,
+                        'not reached': 0,
+                        'no path': 0,
+                    }
 
+            for key, reached in succeed.items():
+                if reached and isinstance(reached, bool):
+                    results_per_planner[key]['reached'] += 1
+                elif not reached and isinstance(reached, bool):
+                    results_per_planner[key]['not reached'] += 1
+                elif reached is None:
+                    results_per_planner[key]['no path'] += 1
         
         logger.success(f"Simulations done: {self.config.number_of_simulations} executed.")
-        logger.info(f"Number goal reached: {goal_reached}")
-        logger.info(f"Number goal not reached: {goal_not_reached}")
-        logger.info(f"Number error: {error}")
+
+        # log all the results
+        for planner_name, results in results_per_planner.items():
+            logger.info(f"Results for {planner_name} planner:")
+            logger.info(f"Number goal reached: {results['reached']}")
+            logger.info(f"Number goal not reached: {results['not reached']}")
+            logger.info(f"No path found: {results['no path']}")
 
 
 def main():
@@ -362,7 +429,8 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=100,
+        number_of_simulations=50,
+        min_number_of_obstacles=5,
         max_number_of_obstacles=10,
         environment_size=(20, 20),
         grid_size=0.1,
@@ -376,14 +444,14 @@ def main():
         safety_margin=0.1,
         cbf_reduction='min',
         work_dir=directory,
-        cbf_infused_a_star=True
+        cbf_infused_a_star=False,
+        planner_comparison=True
     )
     
     # create logger
     logger.add(f"{directory}/simulations.log", rotation="10 MB")
 
     # create the environment generator class
-    
     envs = EnvGenerator(config=config)
 
     # apply the simulations
