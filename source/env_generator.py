@@ -5,6 +5,7 @@ from robot_base_env import RobotBaseEnv, pd_controller
 from robot_base_config import RobotBaseCBFConfig
 from robot_base import RobotBase
 from cbf_costmap import CBFCostmap
+from cbf_infused_a_star import CBFInfusedAStar
 from a_star import AStarPlanner
 from visualization import VisualizeCBF
 from cbfpy import CBF
@@ -26,7 +27,8 @@ class EnvGeneratorConfig:
                  work_dir: str, 
                  robot_size=(1, 1),
                  safety_margin=0.0,
-                 cbf_reduction='min'):
+                 cbf_reduction='min',
+                 cbf_infused_a_star=False):
         self.number_of_simulations = number_of_simulations
         self.max_number_of_obstacles = max_number_of_obstacles
         self.environment_size = environment_size                        # in m
@@ -38,6 +40,7 @@ class EnvGeneratorConfig:
         self.robot_size = robot_size
         self.safety_margin = safety_margin
         self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
+        self.cbf_infused_a_star = cbf_infused_a_star
 
 class EnvGenerator:
     # this class is able to do multiple runs behind each other and creates nice logs
@@ -82,6 +85,7 @@ class EnvGenerator:
         logger.info(f"Robot size: {self.config.robot_size}")
         logger.info(f"Safety margin: {self.config.safety_margin}")
         logger.info(f"CBF reduction mode: {self.config.cbf_reduction}")
+        logger.info(f"CBF infused A*: {self.config.cbf_infused_a_star}")
         logger.info(f"Max number of obstascles: {self.config.max_number_of_obstacles}")
         for key, val in self.config.max_obstacle_size.items():
             logger.info(f"Max obstacle size for {key}: {val} m")
@@ -191,18 +195,37 @@ class EnvGenerator:
         # generate the obstacles
         obstacles = self._generate_obstacles(robot_base)
 
-        # generate the planner
-        planner = AStarPlanner(
+        # create config and cbf based on the mode
+        config = RobotBaseCBFConfig(obstacles, robot_base)
+        cbf = CBF.from_config(config)
+        
+        cbf_costmap = CBFCostmap(
             costmap_size=self.config.environment_size,
             grid_size=self.config.grid_size,
-            obstacles=obstacles
+            cbf=config,
+            cbf_reduction=self.config.cbf_reduction
         )
+
+        # generate the planner
+        if self.config.cbf_infused_a_star:
+            planner = CBFInfusedAStar(
+                costmap_size=self.config.environment_size,
+                grid_size=self.config.grid_size,
+                obstacles=obstacles,
+                cbf_costmap=cbf_costmap
+            )
+        else:
+            planner = AStarPlanner(
+                costmap_size=self.config.environment_size,
+                grid_size=self.config.grid_size,
+                obstacles=obstacles
+            )
         
-        return robot_base, obstacles, planner
+        return robot_base, obstacles, planner, config, cbf, cbf_costmap
     
     def _generate_env(self):
         # function to generate the environment
-        robot, obstacles, planner = self._generate_env_elements()
+        robot, obstacles, planner, config, cbf, cbf_costmap = self._generate_env_elements()
 
         # generate the path 
         path = planner.plan(
@@ -230,17 +253,6 @@ class EnvGenerator:
             show_plot=False
         )
 
-        # create config and cbf based on the mode
-        config = RobotBaseCBFConfig(obstacles, robot)
-        cbf = CBF.from_config(config)
-        
-        cbf_costmap = CBFCostmap(
-            costmap_size=self.config.environment_size,
-            grid_size=self.config.grid_size,
-            cbf=config,
-            cbf_reduction=self.config.cbf_reduction
-        )
-
         return env, visualizer, config, cbf, planner, cbf_costmap
 
     @logger.catch
@@ -254,7 +266,7 @@ class EnvGenerator:
         max_timesteps = env.fps * self.config.max_duration_of_simulation
         timesteps = 0
 
-         # add path and costmaps to visualizer
+        # add path and costmaps to visualizer
         visualizer.data["path"] = env.robot_base.path
         visualizer.data["costmap"] = planner.costmap
         visualizer.data["display_map"] = planner.compute_distance_map(start=env.robot_base.position)
@@ -350,7 +362,7 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=10,
+        number_of_simulations=100,
         max_number_of_obstacles=10,
         environment_size=(20, 20),
         grid_size=0.1,
@@ -363,7 +375,8 @@ def main():
         robot_size=(1, 1),
         safety_margin=0.1,
         cbf_reduction='min',
-        work_dir=directory
+        work_dir=directory,
+        cbf_infused_a_star=True
     )
     
     # create logger
