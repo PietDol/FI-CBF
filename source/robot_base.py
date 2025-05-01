@@ -8,6 +8,8 @@ class RobotBase:
         self.radius = np.sqrt((self.width / 2)**2 + (self.height / 2)**2)    # in m (radius of circle that the robot uses)
         self._pos_center = pos_center_start  # in m shape (2,)
         self._vel_center = vel_center_start  # in m/s shape (2,)
+        self.pos_center_start = pos_center_start    # safe to be able to reset the robot
+        self.vel_center_start = vel_center_start    # safe to be able to reset the robot
         self.px_per_meter = env_config.pixels_per_meter    # in m
         self.screen_width = env_config.screen_width    # in px
         self.screen_height = env_config.screen_height  # in px
@@ -32,6 +34,12 @@ class RobotBase:
     @velocity.setter
     def velocity(self, vel):
         self._vel_center = vel
+    
+    def reset(self):
+        # function to reset the robot to its starting position
+        self.position = self.pos_center_start
+        self.velocity = self.vel_center_start
+        self.path_idx = 0
     
     def inter_pos_goal(self, tolerance=1.5):
         # calculate the intermediate goal location

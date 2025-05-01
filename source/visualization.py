@@ -2,8 +2,12 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 
+class VisualizeData:
+    def __init__(self):
+        pass
+
 class VisualizeCBF:
-    def __init__(self, pos_goal, planner, obstacles=[], show_plot=True):
+    def __init__(self, pos_goal, obstacles=[], show_plot=True):
         self._empty_dataset = {
             'control_input': {
                 'u_cbf': [],
@@ -13,12 +17,11 @@ class VisualizeCBF:
             'robot_pos': [],
             'path': [],
             'costmap': [], 
-            'display_map': [],
+            'distance_map': [],
             'cbf_costmap': []
         }
         self.data = self._empty_dataset
         self.pos_goal = pos_goal
-        self.planner = planner
         self.obstacles = obstacles
         self.show_plot = show_plot
     
@@ -77,29 +80,32 @@ class VisualizeCBF:
 
         return axes  # Return the modified axes
     
-    def plot_costmap_from_data(self, ax, start=None):
-        costmap = self.data['costmap']
-        path = np.array(self.data['path'])
+    def plot_distance_costmap(self, ax, planner):
+        # get all the data
+        costmap = planner.costmap
+        path = planner.path_world
+        distance_map = planner.distance_map
+
         obstacle_mask = np.isinf(costmap)
+        robot_pos = np.array(self.data['robot_pos'])
 
         # Display map (avoid inf for colormap)
-        display_map = self.data['display_map'].copy()
         if np.any(obstacle_mask):
-            max_val = np.max(display_map[~obstacle_mask])
-            display_map[obstacle_mask] = max_val + 1
+            max_val = np.max(distance_map[~obstacle_mask])
+            distance_map[obstacle_mask] = max_val + 1
             vmax = max_val + 1
-            vmin = np.min(display_map[~obstacle_mask])
+            vmin = np.min(distance_map[~obstacle_mask])
         else:
-            vmax = np.max(display_map)
-            vmin = np.min(display_map)
+            vmax = np.max(distance_map)
+            vmin = np.min(distance_map)
 
         # Show distance/cost map
         extent = [
-            *self.planner.grid_to_world((0, 0)),                     # lower left (x_min, y_min)
-            *self.planner.grid_to_world((self.planner.rows, self.planner.cols))      # upper right (x_max, y_max)
+            *planner.grid_to_world((0, 0)),                     # lower left (x_min, y_min)
+            *planner.grid_to_world((planner.rows, planner.cols))      # upper right (x_max, y_max)
         ]
         extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow: [x_min, x_max, y_min, y_max]
-        img = ax.imshow(display_map, cmap='viridis', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
+        img = ax.imshow(distance_map, cmap='viridis', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
 
         # Overlay obstacles as black
         for obstacle in self.obstacles:
@@ -110,9 +116,7 @@ class VisualizeCBF:
         ax.plot(path[:, 0], path[:, 1], color='cyan', label='Planned traj')
 
         # Plot start and goal
-        if start is not None:
-            ax.plot(start[0], start[1], 'ro', label='Start')
-
+        ax.plot(robot_pos[0, 0], robot_pos[0, 1], 'ro', label='Start')
         ax.plot(self.pos_goal[0], self.pos_goal[1], 'go', label='Goal')
 
         ax.set_title("Costmap and A* Path")
@@ -128,9 +132,16 @@ class VisualizeCBF:
 
         return ax
     
-    def plot_cbf_costmap_from_data(self, ax):
-        cbf_costmap = np.array(self.data['cbf_costmap'])
-        path = np.array(self.data['path'])
+    def plot_cbf_costmap(self, ax, planner, cbf_costmap=None):
+        # input of cbf_costmap is the array of the cbf_costmap
+        # the planner is the planner object
+        # get all the data
+        if cbf_costmap is None:
+            cbf_costmap = np.array(self.data['cbf_costmap'])
+        else:
+            cbf_costmap = np.array(cbf_costmap.costmap)
+        
+        path = np.array(planner.path_world)
         robot_pos = np.array(self.data['robot_pos'])
 
         # Basic min/max values for colormap
@@ -139,8 +150,8 @@ class VisualizeCBF:
 
         # Define extent in world coordinates
         extent = [
-            *self.planner.grid_to_world((0, 0)),
-            *self.planner.grid_to_world((self.planner.rows, self.planner.cols))
+            *planner.grid_to_world((0, 0)),
+            *planner.grid_to_world((planner.rows, planner.cols))
         ]
         extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow
 
@@ -177,42 +188,36 @@ class VisualizeCBF:
 
         return ax
 
-    def plot_robot_trajectory(self, axes=None):
+    def plot_robot_trajectory(self, ax=None, path=None):
         # Convert list to array
         robot_pos = np.array(self.data['robot_pos'])
-        path = np.array(self.data['path'])
+        if path is None:
+            path = np.array(self.data['path'])
+        else:
+            path = np.array(path)
 
         # Plot robot trajectory
-        axes[0].plot(path[:, 0], path[:, 1], label='Planned traj')
-        axes[0].plot(robot_pos[:, 0], robot_pos[:, 1], label='Robot traj')
-        axes[0].plot(self.pos_goal[0], self.pos_goal[1], color='green', marker='o', label='Goal')
-        axes[0].plot(robot_pos[0, 0], robot_pos[0, 1], color='red', marker='o', label='Start')
+        ax.plot(path[:, 0], path[:, 1], label='Planned traj')
+        ax.plot(robot_pos[:, 0], robot_pos[:, 1], label='Robot traj')
+        ax.plot(self.pos_goal[0], self.pos_goal[1], color='green', marker='o', label='Goal')
+        ax.plot(robot_pos[0, 0], robot_pos[0, 1], color='red', marker='o', label='Start')
 
         # Add obstacles
         for obstacle in self.obstacles:
             drawing = obstacle.pyplot_drawing()
-            axes[0].add_patch(drawing)
+            ax.add_patch(drawing)
 
         # Customize the plot
-        axes[0].set_title('Robot trajectory over time')
-        axes[0].set_xlabel('x')
-        axes[0].set_ylabel('y')
-        axes[0].axis('equal')
-        axes[0].legend()
-        axes[0].grid(True)
+        ax.set_title('Robot trajectory over time')
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.axis('equal')
+        ax.legend()
+        ax.grid(True)
 
-        # costmap for planner
-        axes[1] = self.plot_costmap_from_data(
-            ax=axes[1],
-            start=robot_pos[0]
-        )
-
-        # costmap for cbf
-        axes[2] = self.plot_cbf_costmap_from_data(ax=axes[2])
-        return axes  # Return the modified axis
-
+        return ax 
     
-    def create_plot(self, plot_types, filename=''):
+    def create_plot(self, plot_types, planner, filename=''):
         # function save figure if there is a filename
         num_control = 'control_input' in plot_types
         num_coloms_control = len(self.data['control_input']['u_nominal'][0]) if 'control_input' in plot_types and len(self.data['control_input']['u_nominal']) > 0 else 0
@@ -267,7 +272,14 @@ class VisualizeCBF:
 
         # Plot robot trajectory (last row, spanning all columns)
         if num_robot:
-            self.plot_robot_trajectory(axes=axes[ax_idx])
+
+            self.plot_robot_trajectory(ax=axes[ax_idx][0])
+
+            # costmap for planner
+            self.plot_distance_costmap(ax=axes[ax_idx][1], planner=planner)
+
+            # costmap for cbf
+            self.plot_cbf_costmap(ax=axes[ax_idx][2], planner=planner)
             
             # remove unused subplots
             if num_cols > 3:
