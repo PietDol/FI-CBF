@@ -112,7 +112,7 @@ class RectangleObstacle(Obstacle):
         return costmap
 
     def h(self, Z):
-        # batched 
+        # batched -> faster
         if Z.ndim == 1:
             Z = Z[None, :]  # Reshape to (1, 4)
 
@@ -205,7 +205,7 @@ class CircleObstacle(Obstacle):
         return costmap
     
     def h(self, Z):
-        # batched
+        # batched -> faster
         if Z.ndim == 1:
             Z = Z[None, :]  # Reshape to (1, 4)
         

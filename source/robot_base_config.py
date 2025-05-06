@@ -17,7 +17,7 @@ class RobotBaseCBFConfig(CBFConfig):
         return jnp.block([[jnp.eye(2)], [jnp.zeros((2, 2))]])
     
     def h_1(self, Z, batched=False):
-        # batched
+        # batched -> faster for costmap calculation
         if Z.ndim == 1:
             Z = Z[None, :]  # Reshape to (1, 4)
 
@@ -37,14 +37,6 @@ class RobotBaseCBFConfig(CBFConfig):
         # h_values: (N, num_obstacles)
         # Apply alpha elementwise
         return jnp.vectorize(self.alpha)(h_values)
-
-    # def h_2(self, z):
-    #     h_values = []
-
-    #     for obstacle in self.obstacles:
-    #         h_value = obstacle.h(z)
-    #         h_values.append(h_value)
-    #     return jnp.array(h_values)
 
 
 class RobotBaseCLFCBFConfig(CLFCBFConfig):
