@@ -14,6 +14,7 @@ import random
 from obstacles import RectangleObstacle, CircleObstacle
 import numpy as np
 import os
+from uncertainty_costmap import UncertaintyCostmap
 
 
 class EnvGeneratorConfig:
@@ -222,6 +223,12 @@ class EnvGenerator:
             cbf_reduction=self.config.cbf_reduction
         )
 
+        uncertainty_costmap = UncertaintyCostmap(
+            cbf=cbf,
+            min_values_state=np.array([-10, -10, -5, -5]),
+            max_values_state=np.array([10, 10, 5, 5])
+        )
+
         # generate the planner
         planners = {}
         if self.config.cbf_infused_a_star:
@@ -275,7 +282,7 @@ class EnvGenerator:
             )
             visualizers[key] = visualizer
         
-        return env, visualizers, config, cbf, planners, cbf_costmap
+        return env, visualizers, config, cbf, planners, cbf_costmap, uncertainty_costmap
     
     def _run_planner(self, 
                      env: RobotBaseEnv, 
@@ -284,6 +291,7 @@ class EnvGenerator:
                      cbf: CBF, 
                      planner: AStarPlanner | CBFInfusedAStar, 
                      cbf_costmap: CBFCostmap, 
+                     uncertainty_costmap: UncertaintyCostmap,
                      env_folder: str):
         max_timesteps = env.fps * self.config.max_duration_of_simulation
         timesteps = 0
@@ -301,7 +309,6 @@ class EnvGenerator:
             pos_des = env.get_desired_state()
             
             # calculate nominal control
-            # nominal_control = pd_controller(pos_des, current_state[:2], current_state[2:])
             nominal_control = pd_controller(pos_des, estimated_state[:2], estimated_state[2:])
             
             # safe data for visualizer  
@@ -313,7 +320,11 @@ class EnvGenerator:
             visualizer.data['robot_pos_estimated'].append(estimated_state[:2])
 
             # apply safety filter
-            # u = cbf.safety_filter(current_state, nominal_control)
+            safety_margin = uncertainty_costmap.calculate_safety_margin(
+                epsilon=0.4,
+                u_nominal=nominal_control,
+                mode='robust'
+            )
             u = cbf.safety_filter(estimated_state, nominal_control)
 
             # safe control data for visualizer
@@ -378,7 +389,7 @@ class EnvGenerator:
 
     @logger.catch
     def _run_env(self, env_id):
-        env, visualizers, config, cbf, planners, cbf_costmap = self._generate_env_elements()
+        env, visualizers, config, cbf, planners, cbf_costmap, uncertainty_costmap = self._generate_env_elements()
         success = {}
 
         # create folder for this simulation
@@ -411,6 +422,7 @@ class EnvGenerator:
                 cbf=cbf,
                 planner=planner,
                 cbf_costmap=cbf_costmap,
+                uncertainty_costmap=uncertainty_costmap,
                 env_folder=env_folder
             )
             success[planner_name] = goal_reached
@@ -469,8 +481,8 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=30,
-        fps=10,
+        number_of_simulations=1,
+        fps=50,
         min_number_of_obstacles=5,
         max_number_of_obstacles=10,
         environment_size=(20, 20),

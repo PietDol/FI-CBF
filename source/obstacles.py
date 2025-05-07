@@ -111,14 +111,14 @@ class RectangleObstacle(Obstacle):
         costmap[row_min:row_max, col_min:col_max] = np.inf
         return costmap
 
-    def h(self, Z):
+    def h(self, z, safety_margin=0.0):
         # batched -> faster
-        if Z.ndim == 1:
-            Z = Z[None, :]  # Reshape to (1, 4)
+        if z.ndim == 1:
+            z = z[None, :]  # Reshape to (1, 4)
 
         # Z: shape (N, 4)
-        px = Z[:, 0]
-        py = Z[:, 1]
+        px = z[:, 0]
+        py = z[:, 1]
 
         closest_point = self.find_closest_point_to_obstacle(px, py)  # (N, 2)
 
@@ -126,7 +126,7 @@ class RectangleObstacle(Obstacle):
         norm = jnp.linalg.norm(vectors, axis=1, keepdims=True) + 1e-6
         normal_vectors = vectors / norm
 
-        h_values = jnp.sum(normal_vectors * vectors, axis=1) - self.robot.radius - self.robot.safety_margin
+        h_values = jnp.sum(normal_vectors * vectors, axis=1) - self.robot.radius - safety_margin
         return h_values  # shape (N,)
 
     def check_collision(self, robot: RobotBase, safety_margin=0.0):
@@ -203,19 +203,19 @@ class CircleObstacle(Obstacle):
                     costmap[min(max(row-r-1, 0), rows - 1), min(max(col+c, 0), cols - 1)] = np.inf
                     costmap[min(max(row-r-1, 0), rows - 1), min(max(col-c-1, 0), cols - 1)] = np.inf
         return costmap
-    
-    def h(self, Z):
-        # batched -> faster
-        if Z.ndim == 1:
-            Z = Z[None, :]  # Reshape to (1, 4)
-        
-        # Z: shape (N, 4)
-        px = Z[:, 0]
-        py = Z[:, 1]
+
+    def h(self, z, safety_margin=0.0):
+        if z.ndim == 1:
+            z = z[None, :]
+
+        px = z[:, 0]
+        py = z[:, 1]
         delta = jnp.stack([px, py], axis=1) - self.pos_center  # (N, 2)
 
-        h_values = jnp.sum(delta**2, axis=1) - (self.robot.radius + self.radius + self.robot.safety_margin)**2
-        return h_values  # shape (N,)
+        dist = jnp.linalg.norm(delta, axis=1)
+        buffer = self.robot.radius + self.radius + safety_margin
+        h_values = dist - buffer
+        return h_values # shape (N,)
 
     def pygame_drawing(self, screen, color):
         radius_px = int(self.env_config.pixels_per_meter[0] * self.radius)
