@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
+from loguru import logger
 
 class VisualizeData:
     def __init__(self):
@@ -15,6 +16,7 @@ class VisualizeCBF:
             },
             'h':[],
             'robot_pos': [],
+            'robot_pos_estimated': [],
             'path': [],
             'costmap': [], 
             'distance_map': [],
@@ -44,8 +46,8 @@ class VisualizeCBF:
 
         # Plot the data
         for i in range(dim_controller):
-            axes[i].plot(x, u_nominal[:, i], label=f'u nominal {i}')
             axes[i].plot(x, u_cbf[:, i], label=f'u cbf {i}')
+            axes[i].plot(x, u_nominal[:, i], label=f'u nominal {i}')
 
             # Customize the plot
             axes[i].set_title('Control input over time')
@@ -191,12 +193,14 @@ class VisualizeCBF:
     def plot_robot_trajectory(self, ax=None, path=None):
         # Convert list to array
         robot_pos = np.array(self.data['robot_pos'])
+        robot_pos_estimated = np.array(self.data['robot_pos_estimated'])
         if path is None:
             path = np.array(self.data['path'])
         else:
             path = np.array(path)
 
         # Plot robot trajectory
+        ax.plot(robot_pos_estimated[:, 0], robot_pos_estimated[:, 1], label='Robot traj est', ls='--', alpha=0.6, color='m')
         ax.plot(path[:, 0], path[:, 1], label='Planned traj')
         ax.plot(robot_pos[:, 0], robot_pos[:, 1], label='Robot traj')
         ax.plot(self.pos_goal[0], self.pos_goal[1], color='green', marker='o', label='Goal')
@@ -217,7 +221,7 @@ class VisualizeCBF:
 
         return ax 
     
-    def create_plot(self, plot_types, planner, filename=''):
+    def create_plot(self, plot_types, planner, filename=None):
         # function save figure if there is a filename
         num_control = 'control_input' in plot_types
         num_coloms_control = len(self.data['control_input']['u_nominal'][0]) if 'control_input' in plot_types and len(self.data['control_input']['u_nominal']) > 0 else 0
@@ -288,8 +292,14 @@ class VisualizeCBF:
 
         plt.tight_layout()
 
-        if isinstance(filename, str) and filename != '':
+        if isinstance(filename, str):
             plt.savefig(filename)
+            logger.success(f"Visualization saved: {filename}")
+            plt.close()
+        elif isinstance(filename, list):
+            for f in filename:
+                plt.savefig(f)
+                logger.success(f"Visualization saved: {f}")
             plt.close()
 
         if self.show_plot:

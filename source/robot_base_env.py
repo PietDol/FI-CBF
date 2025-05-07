@@ -16,6 +16,7 @@ from env_config import EnvConfig
 from a_star import AStarPlanner
 
 import jax.numpy as jnp
+from loguru import logger
 
 class RobotBaseEnv(BaseEnv):
     def __init__(
@@ -23,7 +24,8 @@ class RobotBaseEnv(BaseEnv):
         env_config: EnvConfig,
         robot_base: RobotBase,
         obstacles: list, 
-        pygame_screen=True
+        pygame_screen=True,
+        fps=60
     ):
         self.env_config = env_config
         self.pygame_screen = pygame_screen
@@ -49,7 +51,7 @@ class RobotBaseEnv(BaseEnv):
         self.goal_x, self.goal_y = self.position_to_pixels(self.robot_base.pos_goal)
 
         # some other pygame parameters
-        self.fps = 60
+        self.fps = fps
         self.dt = 1 / self.fps
         self.running = True
 
@@ -58,8 +60,31 @@ class RobotBaseEnv(BaseEnv):
         px = pos * self.env_config.pixels_per_meter + np.array([self.env_config.screen_width / 2, self.env_config.screen_height / 2])
         return px.astype(int)
 
-    def get_state(self):
+    def get_state(self) -> np.array:
         return np.concatenate((self.robot_base.position, self.robot_base.velocity))
+    
+    def get_estimated_state(self, std: np.ndarray | float):
+        # function to do the state estimation 
+        # it adds the given noise to the true state. if the shapes are not the same, the true state is returned
+        true_state = self.get_state()
+        
+        # add the noise to the true state
+        if isinstance(std, float):
+            noise = np.random.normal(loc=0.0, scale=std, size=true_state.shape)
+            estimated_state = true_state + noise
+        elif isinstance(std, np.ndarray):
+            # check the shapes
+            if true_state.shape != std.shape:
+                logger.error(f"Shapes of state and stds are not the same: {true_state.shape} != {std.shape}")
+                logger.warning("State estimation not possible. Return true state.")
+                estimated_state = true_state
+            else:
+                estimated_state = true_state + std
+        else:
+            logger.error(f"Unsupported type: {type(std)}")
+        
+        # return the estimated state
+        return estimated_state
     
     def get_desired_state(self):
         return self.robot_base.inter_pos_goal()

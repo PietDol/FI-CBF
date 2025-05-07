@@ -26,6 +26,8 @@ class EnvGeneratorConfig:
                  max_duration_of_simulation: float,
                  min_goal_distance: float,
                  work_dir: str, 
+                 state_std: np.ndarray | float,
+                 fps=60,
                  robot_size=(1, 1),
                  min_number_of_obstacles=1,
                  safety_margin=0.0,
@@ -39,13 +41,15 @@ class EnvGeneratorConfig:
         self.grid_size = grid_size                                      # in m
         self.max_obstacle_size = max_obstacle_size                      # in m
         self.max_duration_of_simulation = max_duration_of_simulation    # in seconds
-        self.min_goal_distance = min_goal_distance
+        self.min_goal_distance = min_goal_distance      # in m
         self.work_dir = work_dir
-        self.robot_size = robot_size
-        self.safety_margin = safety_margin
+        self.state_std = state_std          # in m
+        self.robot_size = robot_size        # in m
+        self.fps = fps
+        self.safety_margin = safety_margin  # in m
         self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
-        self.cbf_infused_a_star = cbf_infused_a_star
-        self.planner_comparison = planner_comparison
+        self.cbf_infused_a_star = cbf_infused_a_star    # bool
+        self.planner_comparison = planner_comparison    # bool
 
 class EnvGenerator:
     # this class is able to do multiple runs behind each other and creates nice logs
@@ -63,6 +67,10 @@ class EnvGenerator:
         )
         self.pygame_screen = False  # we dont want the pygame screen to pops up
         self.work_dir_available = self._create_work_dir()
+
+        # create workdir to save all the combined image (only if there is no comparison)
+        if not self.config.planner_comparison:
+            os.makedirs(f"{self.config.work_dir}/simulation_results/all_envs", exist_ok=True)
 
         # log all the important information
         self.log_information()
@@ -84,11 +92,13 @@ class EnvGenerator:
     def log_information(self):
         logger.info(f"Workdir: {self.config.work_dir}")
         logger.info(f"Environment size: {self.config.environment_size}")
+        logger.info(f"FPS: {self.config.fps}")
         logger.info(f"Grid size: {self.config.grid_size} m")
         logger.info(f"Max duration for simulation: {self.config.max_duration_of_simulation} s")
         logger.info(f"Minimum distance to the goal: {self.config.min_goal_distance} m")
         logger.info(f"Robot size: {self.config.robot_size}")
         logger.info(f"Safety margin: {self.config.safety_margin}")
+        logger.info(f"State estimation std: {self.config.state_std}")
         logger.info(f"CBF reduction mode: {self.config.cbf_reduction}")
         logger.info(f"CBF infused A*: {self.config.cbf_infused_a_star}")
         logger.info(f"Min number of obstascles: {self.config.min_number_of_obstacles}")
@@ -252,7 +262,8 @@ class EnvGenerator:
             env_config=self.env_config,
             robot_base=robot,
             obstacles=obstacles,
-            pygame_screen=self.pygame_screen
+            pygame_screen=self.pygame_screen,
+            fps=self.config.fps
         )
 
         visualizers = {}
@@ -266,7 +277,14 @@ class EnvGenerator:
         
         return env, visualizers, config, cbf, planners, cbf_costmap
     
-    def _run_planner(self, env, visualizer, config, cbf, planner, cbf_costmap, env_folder):
+    def _run_planner(self, 
+                     env: RobotBaseEnv, 
+                     visualizer: VisualizeCBF, 
+                     config: RobotBaseCBFConfig, 
+                     cbf: CBF, 
+                     planner: AStarPlanner | CBFInfusedAStar, 
+                     cbf_costmap: CBFCostmap, 
+                     env_folder: str):
         max_timesteps = env.fps * self.config.max_duration_of_simulation
         timesteps = 0
 
@@ -279,19 +297,24 @@ class EnvGenerator:
         # run env
         while env.running and timesteps < max_timesteps:
             current_state = env.get_state()
+            estimated_state = env.get_estimated_state(std=self.config.state_std)
             pos_des = env.get_desired_state()
             
             # calculate nominal control
-            nominal_control = pd_controller(pos_des, current_state[:2], current_state[2:])
+            # nominal_control = pd_controller(pos_des, current_state[:2], current_state[2:])
+            nominal_control = pd_controller(pos_des, estimated_state[:2], estimated_state[2:])
             
-            # safe data for visualizer
+            # safe data for visualizer  
+            # for h take the true state to calculate h
             h = config.h_1(current_state)
             h = config.alpha(h)
             visualizer.data['h'].append(np.array(h))
             visualizer.data['robot_pos'].append(current_state[:2])
+            visualizer.data['robot_pos_estimated'].append(estimated_state[:2])
 
             # apply safety filter
-            u = cbf.safety_filter(current_state, nominal_control)
+            # u = cbf.safety_filter(current_state, nominal_control)
+            u = cbf.safety_filter(estimated_state, nominal_control)
 
             # safe control data for visualizer
             visualizer.data['control_input']['u_cbf'].append(u)
@@ -305,7 +328,13 @@ class EnvGenerator:
             # increment timestep
             timesteps += 1
         
-        if env.robot_base.check_goal_reached(tolerance=self.config.grid_size+0.01):
+        # check the maximum tolerance as an effect of the state estimation uncertainty
+        if isinstance(self.config.state_std, float):
+            max_tolerance_state_uncertainty = self.config.state_std
+        elif isinstance(self.config.planner_comparison, np.ndarray):
+            max_tolerance_state_uncertainty = np.amax(self.config.state_std)
+        
+        if env.robot_base.check_goal_reached(tolerance=self.config.grid_size + max_tolerance_state_uncertainty + 0.01):
             logger.success(f"Goal reached in {timesteps} timesteps.")
             goal_reached = True
         else:
@@ -319,6 +348,7 @@ class EnvGenerator:
         h = config.alpha(h)
         visualizer.data['h'].append(np.array(h))
         visualizer.data['robot_pos'].append(current_state[:2])
+        visualizer.data['robot_pos_estimated'].append(estimated_state[:2])
 
         # generate drawings
         if isinstance(planner,  CBFInfusedAStar):
@@ -330,8 +360,18 @@ class EnvGenerator:
             filename = f"{env_folder}/{planner_filename}_success.png"
         else:
             filename = f"{env_folder}/{planner_filename}_fail.png"
+        
+        filename = [filename]
+        if not self.config.planner_comparison:
+            env_number = env_folder.split('_')[-1]
+            if goal_reached:
+                _filename = f"{self.config.work_dir}/simulation_results/all_envs/{env_number}_success.png"
+            else:
+                _filename = f"{self.config.work_dir}/simulation_results/all_envs/{env_number}_fail.png"
+            
+            filename.append(_filename)
+
         visualizer.create_plot(['control_input', 'h', 'robot_pos'], planner, filename)
-        logger.success(f"Visualization saved: {filename}")
 
         # return whether the goal is reached
         return goal_reached
@@ -429,7 +469,8 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=50,
+        number_of_simulations=30,
+        fps=10,
         min_number_of_obstacles=5,
         max_number_of_obstacles=10,
         environment_size=(20, 20),
@@ -441,11 +482,12 @@ def main():
         max_duration_of_simulation=20,
         min_goal_distance=15,
         robot_size=(1, 1),
-        safety_margin=0.1,
+        state_std=0.5,
+        safety_margin=0.0,
         cbf_reduction='min',
         work_dir=directory,
         cbf_infused_a_star=False,
-        planner_comparison=True
+        planner_comparison=False
     )
     
     # create logger
