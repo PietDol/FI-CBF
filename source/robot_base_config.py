@@ -1,6 +1,5 @@
 from cbfpy import CBFConfig, CLFCBFConfig
 import jax.numpy as jnp
-import numpy as np
 
 class RobotBaseCBFConfig(CBFConfig):
     def __init__(self, obstacles, robot):
@@ -16,15 +15,15 @@ class RobotBaseCBFConfig(CBFConfig):
         # return jnp.block([[jnp.zeros((2, 2))], [jnp.eye(2)]])
         return jnp.block([[jnp.eye(2)], [jnp.zeros((2, 2))]])
     
-    def h_1(self, Z, batched=False):
+    def h_1(self, z, batched=False):
         # batched -> faster for costmap calculation
-        if Z.ndim == 1:
-            Z = Z[None, :]  # Reshape to (1, 4)
+        if z.ndim == 1:
+            z = z[None, :]  # Reshape to (1, 4)
 
-        # Z: (N, 4)
+        # z: (N, 4)
         h_values = []
         for obstacle in self.obstacles:
-            h_value = obstacle.h(Z)  # (N,)
+            h_value = obstacle.h(z)  # (N,)
             h_values.append(h_value)
         
         h_values = jnp.stack(h_values, axis=1)  # (N, num_obstacles)
