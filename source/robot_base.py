@@ -58,6 +58,26 @@ class RobotBase:
         else:
             return self.path[self.path_idx]
     
+    def velocity_pd_controller(self, Kp=0.5, target_speed=4.0, slow_radius=3.0):
+        if len(self.path) == 0:
+            return np.zeros(2)
+
+        lookahead_idx = min(self.path_idx + 1, len(self.path) - 1)
+        direction = self.path[lookahead_idx] - self.position
+        norm = np.linalg.norm(direction)
+
+        distance_to_goal = np.linalg.norm(self.pos_goal - self.position)
+        speed = target_speed * np.clip(distance_to_goal / slow_radius, 0.0, 1.0)
+
+        if norm < 1e-6:
+            v_des = np.zeros_like(self.velocity)
+        else:
+            v_des = direction / norm * speed
+
+        velocity_error = v_des - self.velocity
+        u = Kp * velocity_error 
+        return np.clip(u, self.u_min_max[0], self.u_min_max[1])
+    
     def add_path(self, path):
         # method to add the path
         self.path = path
@@ -82,7 +102,7 @@ class RobotBase:
         drawing = pygame.Rect(self.pos_px(), (width_px, height_px))
         return drawing
 
-    def check_goal_reached(self, tolerance=0.01, pos_inter=np.array([])):
+    def check_goal_reached(self, tolerance=0.1, pos_inter=np.array([])):
         # function to check if the goal is reached
         if pos_inter.shape[0] < 1:
             distance = np.linalg.norm(np.array(self.position) - np.array(self.pos_goal))

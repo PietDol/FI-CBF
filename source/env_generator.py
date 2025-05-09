@@ -309,7 +309,14 @@ class EnvGenerator:
             pos_des = env.get_desired_state()
             
             # calculate nominal control
-            nominal_control = pd_controller(pos_des, estimated_state[:2], estimated_state[2:])
+            # nominal_control = pd_controller(pos_des, estimated_state[:2], estimated_state[2:])
+            nominal_control = env.robot_base.velocity_pd_controller()
+            if np.isnan(current_state).any():
+                logger.warning(f"[{timesteps}]: Nan value in current_state: {current_state}")
+                break
+            # else:
+            #     logger.info(f"[{timesteps}]: Nominal control: {nominal_control}")
+            #     logger.info(f"[{timesteps}]: Current state: {current_state}")
             
             # safe data for visualizer  
             # for h take the true state to calculate h
@@ -318,6 +325,7 @@ class EnvGenerator:
             visualizer.data['h'].append(np.array(h))
             visualizer.data['robot_pos'].append(current_state[:2])
             visualizer.data['robot_pos_estimated'].append(estimated_state[:2])
+            visualizer.data['robot_vel'].append(current_state[2:])
 
             # apply safety filter
             safety_margin = uncertainty_costmap.calculate_safety_margin(
@@ -342,7 +350,7 @@ class EnvGenerator:
         # check the maximum tolerance as an effect of the state estimation uncertainty
         if isinstance(self.config.state_std, float):
             max_tolerance_state_uncertainty = self.config.state_std
-        elif isinstance(self.config.planner_comparison, np.ndarray):
+        elif isinstance(self.config.state_std, np.ndarray):
             max_tolerance_state_uncertainty = np.amax(self.config.state_std)
         
         if env.robot_base.check_goal_reached(tolerance=self.config.grid_size + max_tolerance_state_uncertainty + 0.01):
@@ -360,6 +368,7 @@ class EnvGenerator:
         visualizer.data['h'].append(np.array(h))
         visualizer.data['robot_pos'].append(current_state[:2])
         visualizer.data['robot_pos_estimated'].append(estimated_state[:2])
+        visualizer.data['robot_vel'].append(current_state[2:])
 
         # generate drawings
         if isinstance(planner,  CBFInfusedAStar):
@@ -481,7 +490,7 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=1,
+        number_of_simulations=50,
         fps=50,
         min_number_of_obstacles=5,
         max_number_of_obstacles=10,
@@ -494,11 +503,11 @@ def main():
         max_duration_of_simulation=20,
         min_goal_distance=15,
         robot_size=(1, 1),
-        state_std=0.5,
+        state_std=np.array([0.1, 0.1, 0.0, 0.0]),
         safety_margin=0.0,
         cbf_reduction='min',
         work_dir=directory,
-        cbf_infused_a_star=False,
+        cbf_infused_a_star=True,
         planner_comparison=False
     )
     

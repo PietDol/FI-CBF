@@ -17,6 +17,7 @@ class VisualizeCBF:
             'h':[],
             'robot_pos': [],
             'robot_pos_estimated': [],
+            'robot_vel': [],
             'path': [],
             'costmap': [], 
             'distance_map': [],
@@ -35,8 +36,10 @@ class VisualizeCBF:
         # Convert lists to array
         u_nominal = np.array(self.data['control_input']['u_nominal'])
         u_cbf = np.array(self.data['control_input']['u_cbf'])
+        robot_vel = np.array(self.data['robot_vel'])
         x = np.arange(u_nominal.shape[0])
         dim_controller = u_nominal.shape[1]
+        dim_velocity = robot_vel.shape[1]
 
         # Create axis if not provided
         if ax is None:
@@ -44,7 +47,7 @@ class VisualizeCBF:
         else:
             axes = ax
 
-        # Plot the data
+        # Plot the data for controller
         for i in range(dim_controller):
             axes[i].plot(x, u_cbf[:, i], label=f'u cbf {i}')
             axes[i].plot(x, u_nominal[:, i], label=f'u nominal {i}')
@@ -55,6 +58,14 @@ class VisualizeCBF:
             axes[i].set_ylabel('Control input')
             axes[i].legend()
             axes[i].grid(True)
+        
+        for i in range(dim_velocity):
+            idx = i + dim_controller
+            axes[idx].plot(x, robot_vel[:, i])
+            axes[idx].set_title(f'Velocity over time (axes={i})')
+            axes[idx].set_xlabel('Time step [-]')
+            axes[idx].set_ylabel('Velocity [m/s]')
+            axes[idx].grid(True)
 
         return axes  # Return the modified axis
 
@@ -224,7 +235,7 @@ class VisualizeCBF:
     def create_plot(self, plot_types, planner, filename=None):
         # function save figure if there is a filename
         num_control = 'control_input' in plot_types
-        num_coloms_control = len(self.data['control_input']['u_nominal'][0]) if 'control_input' in plot_types and len(self.data['control_input']['u_nominal']) > 0 else 0
+        num_coloms_control = len(self.data['control_input']['u_nominal'][0]) + len(self.data['robot_vel'][0]) if 'control_input' in plot_types else 0
         num_cbfs = 'h' in plot_types
         num_colom_cbfs = len(self.data['h'][0]) if 'h' in plot_types and len(self.data['h']) > 0 else 0
         num_robot = 'robot_pos' in plot_types

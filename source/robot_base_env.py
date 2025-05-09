@@ -79,7 +79,10 @@ class RobotBaseEnv(BaseEnv):
                 logger.warning("State estimation not possible. Return true state.")
                 estimated_state = true_state
             else:
-                estimated_state = true_state + std
+                _std = np.zeros_like(std)
+                for i in range(std.shape[0]):
+                    _std[i] = np.random.normal(loc=0.0, scale=std[i])
+                estimated_state = true_state + _std
         else:
             logger.error(f"Unsupported type: {type(std)}")
         
@@ -148,7 +151,7 @@ class RobotBaseEnv(BaseEnv):
             pygame.time.Clock().tick(self.fps)
 
     
-def pd_controller(pos_des, pos_current, vel_current, Kp=0.5, Kd=0.3):
+def pd_controller(pos_des, pos_current, vel_current, Kp=0.2, Kd=0.1):
     """
     PD controller to drive the robot towards the goal with less overshoot.
     
