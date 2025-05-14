@@ -280,7 +280,7 @@ def main():
     pygame.quit()
 
     # generate drawings
-    visualizer.create_plot(['control_input', 'h', 'robot_pos'])
+    visualizer.create_full_plot()
 
 if __name__ == "__main__":
     main()

@@ -294,16 +294,15 @@ class EnvGenerator:
                      uncertainty_costmap: UncertaintyCostmap,
                      env_folder: str):
         max_timesteps = env.fps * self.config.max_duration_of_simulation
-        timesteps = 0
+        timestep = 0
 
         # add path and costmaps to visualizer
         visualizer.data.path = env.robot_base.path
-        visualizer.data.costmap = planner.costmap
-        visualizer.data.distance_map = planner.compute_distance_map(start=env.robot_base.position)
+        visualizer.data.planner_costmap = planner.compute_distance_map(start=env.robot_base.position)
         visualizer.data.cbf_costmap = cbf_costmap.costmap
 
         # run env
-        while env.running and timesteps < max_timesteps:
+        while env.running and timestep < max_timesteps:
             current_state = env.get_state()
             estimated_state = env.get_estimated_state(std=self.config.state_std)
             pos_des = env.get_desired_state()
@@ -312,14 +311,12 @@ class EnvGenerator:
             # nominal_control = pd_controller(pos_des, estimated_state[:2], estimated_state[2:])
             nominal_control = env.robot_base.velocity_pd_controller()
             if np.isnan(current_state).any():
-                logger.warning(f"[{timesteps}]: Nan value in current_state: {current_state}")
+                logger.warning(f"[{timestep}]: Nan value in current_state: {current_state}")
                 break
-            # else:
-            #     logger.info(f"[{timesteps}]: Nominal control: {nominal_control}")
-            #     logger.info(f"[{timesteps}]: Current state: {current_state}")
             
             # safe data for visualizer  
             # for h take the true state to calculate h
+            visualizer.data.timestep.append(timestep)
             h = config.h_1(current_state)
             h = config.alpha(h)
             visualizer.data.h.append(np.array(h))
@@ -345,7 +342,7 @@ class EnvGenerator:
             env.step()
             
             # increment timestep
-            timesteps += 1
+            timestep += 1
         
         # check the maximum tolerance as an effect of the state estimation uncertainty
         if isinstance(self.config.state_std, float):
@@ -354,13 +351,14 @@ class EnvGenerator:
             max_tolerance_state_uncertainty = np.amax(self.config.state_std)
         
         if env.robot_base.check_goal_reached(tolerance=self.config.grid_size + max_tolerance_state_uncertainty + 0.01):
-            logger.success(f"Goal reached in {timesteps} timesteps.")
+            logger.success(f"Goal reached in {timestep} timesteps.")
             goal_reached = True
         else:
-            logger.warning(f"Simulation ended without reaching the goal. Timesteps: {timesteps}")
+            logger.warning(f"Simulation ended without reaching the goal. Timesteps: {timestep}")
             goal_reached = False
 
         # add last information for visualizer
+        visualizer.data.timestep.append(timestep)
         visualizer.data.u_cbf.append(u)
         visualizer.data.u_nominal.append(nominal_control)
         h = config.h_1(current_state)
@@ -369,13 +367,17 @@ class EnvGenerator:
         visualizer.data.robot_pos.append(current_state[:2])
         visualizer.data.robot_pos_estimated.append(estimated_state[:2])
         visualizer.data.robot_vel.append(current_state[2:])
-
-        # generate drawings
+        
+        # set planner filenames
         if isinstance(planner,  CBFInfusedAStar):
             planner_filename = 'cbf_infused_a_star'
         else:
             planner_filename = 'a_star'
-        
+
+        # save the data
+        visualizer.data.save_data(dir=f"{env_folder}/{planner_filename}")
+
+        # generate drawings
         if goal_reached:
             filename = f"{env_folder}/{planner_filename}_success.png"
         else:
@@ -391,7 +393,7 @@ class EnvGenerator:
             
             filename.append(_filename)
 
-        visualizer.create_plot(['control_input', 'h', 'robot_pos'], planner, filename)
+        visualizer.create_full_plot(planner, filename)
 
         # return whether the goal is reached
         return goal_reached
@@ -490,7 +492,7 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=5,
+        number_of_simulations=2,
         fps=50,
         min_number_of_obstacles=5,
         max_number_of_obstacles=10,
