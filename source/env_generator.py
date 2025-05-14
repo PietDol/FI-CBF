@@ -407,6 +407,9 @@ class EnvGenerator:
         env_folder = f"{self.config.work_dir}/simulation_results/env_{env_id}"
         os.makedirs(env_folder, exist_ok=True)
 
+        # save the environment parameters
+        env.save_env_information(dir=env_folder)
+
         for planner_name, planner in planners.items():
             logger.info(f"Planner: {planner_name}")
 
