@@ -297,10 +297,10 @@ class EnvGenerator:
         timesteps = 0
 
         # add path and costmaps to visualizer
-        visualizer.data["path"] = env.robot_base.path
-        visualizer.data["costmap"] = planner.costmap
-        visualizer.data["distance_map"] = planner.compute_distance_map(start=env.robot_base.position)
-        visualizer.data["cbf_costmap"] = cbf_costmap.costmap
+        visualizer.data.path = env.robot_base.path
+        visualizer.data.costmap = planner.costmap
+        visualizer.data.distance_map = planner.compute_distance_map(start=env.robot_base.position)
+        visualizer.data.cbf_costmap = cbf_costmap.costmap
 
         # run env
         while env.running and timesteps < max_timesteps:
@@ -322,10 +322,10 @@ class EnvGenerator:
             # for h take the true state to calculate h
             h = config.h_1(current_state)
             h = config.alpha(h)
-            visualizer.data['h'].append(np.array(h))
-            visualizer.data['robot_pos'].append(current_state[:2])
-            visualizer.data['robot_pos_estimated'].append(estimated_state[:2])
-            visualizer.data['robot_vel'].append(current_state[2:])
+            visualizer.data.h.append(np.array(h))
+            visualizer.data.robot_pos.append(current_state[:2])
+            visualizer.data.robot_pos_estimated.append(estimated_state[:2])
+            visualizer.data.robot_vel.append(current_state[2:])
 
             # apply safety filter
             safety_margin = uncertainty_costmap.calculate_safety_margin(
@@ -336,8 +336,8 @@ class EnvGenerator:
             u = cbf.safety_filter(estimated_state, nominal_control)
 
             # safe control data for visualizer
-            visualizer.data['control_input']['u_cbf'].append(u)
-            visualizer.data['control_input']['u_nominal'].append(nominal_control)
+            visualizer.data.u_cbf.append(u)
+            visualizer.data.u_nominal.append(nominal_control)
             
             # change environment
             env.apply_control(u)
@@ -361,14 +361,14 @@ class EnvGenerator:
             goal_reached = False
 
         # add last information for visualizer
-        visualizer.data['control_input']['u_cbf'].append(u)
-        visualizer.data['control_input']['u_nominal'].append(nominal_control)
+        visualizer.data.u_cbf.append(u)
+        visualizer.data.u_nominal.append(nominal_control)
         h = config.h_1(current_state)
         h = config.alpha(h)
-        visualizer.data['h'].append(np.array(h))
-        visualizer.data['robot_pos'].append(current_state[:2])
-        visualizer.data['robot_pos_estimated'].append(estimated_state[:2])
-        visualizer.data['robot_vel'].append(current_state[2:])
+        visualizer.data.h.append(np.array(h))
+        visualizer.data.robot_pos.append(current_state[:2])
+        visualizer.data.robot_pos_estimated.append(estimated_state[:2])
+        visualizer.data.robot_vel.append(current_state[2:])
 
         # generate drawings
         if isinstance(planner,  CBFInfusedAStar):
@@ -490,7 +490,7 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=50,
+        number_of_simulations=5,
         fps=50,
         min_number_of_obstacles=5,
         max_number_of_obstacles=10,

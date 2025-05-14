@@ -5,38 +5,53 @@ from loguru import logger
 
 class VisualizeData:
     def __init__(self):
-        pass
+        self.u_cbf = []
+        self.u_nominal = []
+        self.h = []
+        self.robot_pos = []
+        self.robot_pos_estimated = []
+        self.robot_vel = []
+        self.planner_costmap = []
+        self.cbf_costmap = []
+        self.path = []
+
+    def to_numpy(self):
+        for attr, value in self.__dict__.items():
+            if isinstance(value, list):
+                setattr(self, attr, np.array(value))
+
 
 class VisualizeCBF:
     def __init__(self, pos_goal, obstacles=[], show_plot=True):
-        self._empty_dataset = {
-            'control_input': {
-                'u_cbf': [],
-                'u_nominal': []
-            },
-            'h':[],
-            'robot_pos': [],
-            'robot_pos_estimated': [],
-            'robot_vel': [],
-            'path': [],
-            'costmap': [], 
-            'distance_map': [],
-            'cbf_costmap': []
-        }
-        self.data = self._empty_dataset
+        # self._empty_dataset = {
+        #     'control_input': {
+        #         'u_cbf': [],
+        #         'u_nominal': []
+        #     },
+        #     'h':[],
+        #     'robot_pos': [],
+        #     'robot_pos_estimated': [],
+        #     'robot_vel': [],
+        #     'path': [],
+        #     'planner_costmap': [], 
+        #     'distance_map': [],
+        #     'cbf_costmap': []
+        # }
+        # self.data = self._empty_dataset
+        self.data = VisualizeData()
         self.pos_goal = pos_goal
         self.obstacles = obstacles
         self.show_plot = show_plot
     
     def clear(self):
         # clear the data dictionary
-        self.data = self._empty_dataset
+        self.data = VisualizeData()
 
     def plot_control_input(self, ax=None):
         # Convert lists to array
-        u_nominal = np.array(self.data['control_input']['u_nominal'])
-        u_cbf = np.array(self.data['control_input']['u_cbf'])
-        robot_vel = np.array(self.data['robot_vel'])
+        u_nominal = self.data.u_nominal
+        u_cbf = self.data.u_cbf
+        robot_vel = self.data.robot_vel
         x = np.arange(u_nominal.shape[0])
         dim_controller = u_nominal.shape[1]
         dim_velocity = robot_vel.shape[1]
@@ -71,7 +86,7 @@ class VisualizeCBF:
 
     def plot_cbf(self, ax=None):
         # Convert list to array
-        h = np.array(self.data['h'])
+        h = self.data.h
         x = np.arange(h.shape[0])
 
         num_cbfs = h.shape[1]  # Number of CBFs
@@ -100,7 +115,7 @@ class VisualizeCBF:
         distance_map = planner.distance_map
 
         obstacle_mask = np.isinf(costmap)
-        robot_pos = np.array(self.data['robot_pos'])
+        robot_pos = self.data.robot_pos
 
         # Display map (avoid inf for colormap)
         if np.any(obstacle_mask):
@@ -150,12 +165,12 @@ class VisualizeCBF:
         # the planner is the planner object
         # get all the data
         if cbf_costmap is None:
-            cbf_costmap = np.array(self.data['cbf_costmap'])
+            cbf_costmap = self.data.cbf_costmap
         else:
             cbf_costmap = np.array(cbf_costmap.costmap)
         
         path = np.array(planner.path_world)
-        robot_pos = np.array(self.data['robot_pos'])
+        robot_pos = self.data.robot_pos
 
         # Basic min/max values for colormap
         vmax = np.max(cbf_costmap)
@@ -203,10 +218,10 @@ class VisualizeCBF:
 
     def plot_robot_trajectory(self, ax=None, path=None):
         # Convert list to array
-        robot_pos = np.array(self.data['robot_pos'])
-        robot_pos_estimated = np.array(self.data['robot_pos_estimated'])
+        robot_pos = self.data.robot_pos
+        robot_pos_estimated = self.data.robot_pos_estimated
         if path is None:
-            path = np.array(self.data['path'])
+            path = self.data.path
         else:
             path = np.array(path)
 
@@ -233,11 +248,14 @@ class VisualizeCBF:
         return ax 
     
     def create_plot(self, plot_types, planner, filename=None):
+        # convert lists to array
+        self.data.to_numpy()
+
         # function save figure if there is a filename
         num_control = 'control_input' in plot_types
-        num_coloms_control = len(self.data['control_input']['u_nominal'][0]) + len(self.data['robot_vel'][0]) if 'control_input' in plot_types else 0
+        num_coloms_control = len(self.data.u_nominal[0]) + len(self.data.robot_vel[0]) if 'control_input' in plot_types else 0
         num_cbfs = 'h' in plot_types
-        num_colom_cbfs = len(self.data['h'][0]) if 'h' in plot_types and len(self.data['h']) > 0 else 0
+        num_colom_cbfs = len(self.data.h[0]) if 'h' in plot_types and len(self.data.h) > 0 else 0
         num_robot = 'robot_pos' in plot_types
         num_trajectory = 3 if 'robot_pos' in plot_types else 0
 

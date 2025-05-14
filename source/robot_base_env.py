@@ -234,9 +234,9 @@ def main():
     visualizer = VisualizeCBF(pos_goal, planner, obstacles)
 
     # add path and costmap to visualizer
-    visualizer.data["path"] = path["path_world"]
-    visualizer.data["costmap"] = planner.costmap
-    visualizer.data["display_map"] = planner.compute_distance_map(start=start)
+    visualizer.data.path = path["path_world"]
+    visualizer.data.costmap = planner.costmap
+    visualizer.data.display_map = planner.compute_distance_map(start=start)
 
     while env.running:
         current_state = env.get_state()
@@ -250,8 +250,8 @@ def main():
         # safe data for visualizer
         h = config.h_1(current_state)
         h = config.alpha(h)
-        visualizer.data['h'].append(np.array(h))
-        visualizer.data['robot_pos'].append(current_state[:2])
+        visualizer.data.h.append(np.array(h))
+        visualizer.data.robot_pos.append(current_state[:2])
 
         # apply safety filter
         if mode == 0:
@@ -261,20 +261,20 @@ def main():
             nominal_control = config.V_1(current_state)
 
         # safe control data for visualizer
-        visualizer.data['control_input']['u_cbf'].append(u)
-        visualizer.data['control_input']['u_nominal'].append(nominal_control)
+        visualizer.data.u_cbf.append(u)
+        visualizer.data.u_nominal.append(nominal_control)
         
         # change environment
         env.apply_control(u)
         env.step()
     
     # add last information for visualizer
-    visualizer.data['control_input']['u_cbf'].append(u)
-    visualizer.data['control_input']['u_nominal'].append(nominal_control)
+    visualizer.data.u_cbf.append(u)
+    visualizer.data.u_nominal.append(nominal_control)
     h = config.h_1(current_state)
     h = config.alpha(h)
-    visualizer.data['h'].append(np.array(h))
-    visualizer.data['robot_pos'].append(current_state[:2])
+    visualizer.data.h.append(np.array(h))
+    visualizer.data.robot_pos.append(current_state[:2])
 
     # ensure Pygame window is fully closed before proceeding
     pygame.quit()
