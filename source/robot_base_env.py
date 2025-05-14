@@ -285,7 +285,7 @@ def main():
         # safe data for visualizer
         h = config.h_1(current_state)
         h = config.alpha(h)
-        visualizer.data.h.append(np.array(h))
+        visualizer.data.h_true.append(np.array(h))
         visualizer.data.robot_pos.append(current_state[:2])
 
         # apply safety filter
@@ -308,7 +308,7 @@ def main():
     visualizer.data.u_nominal.append(nominal_control)
     h = config.h_1(current_state)
     h = config.alpha(h)
-    visualizer.data.h.append(np.array(h))
+    visualizer.data.h_true.append(np.array(h))
     visualizer.data.robot_pos.append(current_state[:2])
 
     # ensure Pygame window is fully closed before proceeding

@@ -8,7 +8,9 @@ class VisualizeData:
     def __init__(self):
         self.u_cbf = []
         self.u_nominal = []
-        self.h = []
+        self.h_true = []
+        self.h_estimated = []
+        self.safety_margin = []
         self.robot_pos = []
         self.robot_pos_estimated = []
         self.robot_vel = []
@@ -103,15 +105,29 @@ class VisualizeCBF:
 
         return axes  # Return the modified axis
 
+    def plot_safety_margin(self, ax):
+        # function to plot the safety margin over time
+        x = self.data.timestep
+        safety_margins = self.data.safety_margin
+
+        ax.plot(x, safety_margins)
+        ax.set_title(f'Safety margin over time')
+        ax.set_xlabel('Time step [-]')
+        ax.set_ylabel('Safety margin')
+        ax.grid(True)
+        return ax
+
     def plot_cbf(self, axes):
         # converts a list of axes to figures with the value of the cbf over time
-        h = self.data.h
+        h_true = self.data.h_true
+        h_estimated = self.data.h_estimated
         x = self.data.timestep
-        num_cbfs = h.shape[1]  # Number of CBFs
+        num_cbfs = h_true.shape[1]  # Number of CBFs
 
         # Plot each CBF separately
         for i in range(num_cbfs):
-            axes[i].plot(x, h[:, i], label=f'cbf {i}')
+            axes[i].plot(x, h_estimated[:, i], label=f'estimated cbf {i}')
+            axes[i].plot(x, h_true[:, i], label=f'true cbf {i}')
             axes[i].set_title(f'CBF {i} over time')
             axes[i].set_xlabel('Time step [-]')
             axes[i].set_ylabel('h')
@@ -265,8 +281,8 @@ class VisualizeCBF:
 
         # function save figure if there is a filename
         num_colom_state = self.data.robot_pos.shape[1] + self.data.robot_vel.shape[1]
-        num_coloms_control = self.data.u_nominal.shape[1] 
-        num_colom_cbfs = self.data.h.shape[1]
+        num_coloms_control = self.data.u_nominal.shape[1] + 1   # +1 for the safety margin
+        num_colom_cbfs = self.data.h_true.shape[1]
         num_costmaps = 3
 
         # Determine number of rows and columns
@@ -293,6 +309,7 @@ class VisualizeCBF:
 
         # Row 1: Plot control input (single subplot spanning all columns)
         self.plot_control_input(axes=axes[1])
+        self.plot_safety_margin(ax=axes[1][num_coloms_control-1])
 
         # remove unused subplots
         if num_coloms_control < num_cols:

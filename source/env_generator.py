@@ -28,10 +28,10 @@ class EnvGeneratorConfig:
                  min_goal_distance: float,
                  work_dir: str, 
                  state_std: np.ndarray | float,
+                 use_safety_margin: bool,
                  fps=60,
                  robot_size=(1, 1),
                  min_number_of_obstacles=1,
-                 safety_margin=0.0,
                  cbf_reduction='min',
                  cbf_infused_a_star=False,
                  planner_comparison=False):
@@ -47,7 +47,7 @@ class EnvGeneratorConfig:
         self.state_std = state_std          # in m
         self.robot_size = robot_size        # in m
         self.fps = fps
-        self.safety_margin = safety_margin  # in m
+        self.use_safety_margin = use_safety_margin  # bool whether to use safety margin
         self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
         self.cbf_infused_a_star = cbf_infused_a_star    # bool
         self.planner_comparison = planner_comparison    # bool
@@ -98,7 +98,7 @@ class EnvGenerator:
         logger.info(f"Max duration for simulation: {self.config.max_duration_of_simulation} s")
         logger.info(f"Minimum distance to the goal: {self.config.min_goal_distance} m")
         logger.info(f"Robot size: {self.config.robot_size}")
-        logger.info(f"Safety margin: {self.config.safety_margin}")
+        logger.info(f"Use safety margin: {self.config.use_safety_margin}")
         logger.info(f"State estimation std: {self.config.state_std}")
         logger.info(f"CBF reduction mode: {self.config.cbf_reduction}")
         logger.info(f"CBF infused A*: {self.config.cbf_infused_a_star}")
@@ -129,19 +129,23 @@ class EnvGenerator:
         obs_to_keep = []
         for i, obstacle in enumerate(obstacles):
             if generation:
-                # only add safety margin when generating the obstacles
-                collision = obstacle.check_collision(robot, self.config.safety_margin)
+                # only add small safety margin when generating the obstacles -> prevent robot to be to close to obstacle
+                collision = obstacle.check_collision(robot, safety_margin=0.2)
             else:
                 collision = obstacle.check_collision(robot)
             goal_feasible = obstacle.check_goal_position(robot)
 
-            if generation and (collision or not goal_feasible):
-                logger.info(f"Robot or goal position in collision with obstacle (id={obstacle.id}), remove obstacle.")
-                obs_to_keep.append(False)
+            if generation:
+                if collision:
+                    logger.info(f"Robot in collision with obstacle (id={obstacle.id}), remove obstacle.")
+                    obs_to_keep.append(False)
+                elif not goal_feasible:
+                    logger.info(f"Goal position in collision with obstacle (id={obstacle.id}), remove obstacle.")
+                    obs_to_keep.append(False)
+                else:
+                    obs_to_keep.append(True)    
             elif not generation and collision:
                 logger.error(f"Collision between robot and obstacle (id={obstacle.id})! Robot position: {robot.position}")
-            elif generation:
-                obs_to_keep.append(True)
 
         if generation:
             filtered_obstacles = [obstacle for obstacle, keep in zip(obstacles, obs_to_keep) if keep]
@@ -204,8 +208,7 @@ class EnvGenerator:
             height=self.config.robot_size[1],
             env_config=self.env_config,
             pos_goal=pos_goal,
-            pos_center_start=np.array([robot_x, robot_y]),
-            safety_margin=self.config.safety_margin
+            pos_center_start=np.array([robot_x, robot_y])
         )
         logger.info(f"Robot start: {robot.position}, goal: {robot.pos_goal}")
 
@@ -317,24 +320,31 @@ class EnvGenerator:
             # safe data for visualizer  
             # for h take the true state to calculate h
             visualizer.data.timestep.append(timestep)
-            h = config.h_1(current_state)
-            h = config.alpha(h)
-            visualizer.data.h.append(np.array(h))
+            h_true = config.h_1(current_state)
+            h_true = config.alpha(h_true)
+            visualizer.data.h_true.append(np.array(h_true))
+            h_estimated = config.h_1(estimated_state)
+            h_estimated = config.alpha(h_estimated)
+            visualizer.data.h_estimated.append(np.array(h_estimated))
             visualizer.data.robot_pos.append(current_state[:2])
             visualizer.data.robot_pos_estimated.append(estimated_state[:2])
             visualizer.data.robot_vel.append(current_state[2:])
 
             # apply safety filter
-            safety_margin = uncertainty_costmap.calculate_safety_margin(
-                epsilon=0.4,
-                u_nominal=nominal_control,
-                mode='robust'
-            )
-            u = cbf.safety_filter(estimated_state, nominal_control)
+            if self.config.use_safety_margin:
+                safety_margin = uncertainty_costmap.calculate_safety_margin(
+                    epsilon=0.4,        # in the paper they also use 0.4 (later this will be taken from the costmap)
+                    u_nominal=nominal_control,
+                    mode='robust'
+                )
+            else:
+                safety_margin = 0.0
+            u = cbf.safety_filter(estimated_state, nominal_control, safety_margin)
 
             # safe control data for visualizer
             visualizer.data.u_cbf.append(u)
             visualizer.data.u_nominal.append(nominal_control)
+            visualizer.data.safety_margin.append(safety_margin)
             
             # change environment
             env.apply_control(u)
@@ -361,9 +371,13 @@ class EnvGenerator:
         visualizer.data.timestep.append(timestep)
         visualizer.data.u_cbf.append(u)
         visualizer.data.u_nominal.append(nominal_control)
-        h = config.h_1(current_state)
-        h = config.alpha(h)
-        visualizer.data.h.append(np.array(h))
+        visualizer.data.safety_margin.append(safety_margin)
+        h_true = config.h_1(current_state)
+        h_true = config.alpha(h_true)
+        visualizer.data.h_true.append(np.array(h_true))
+        h_estimated = config.h_1(estimated_state)
+        h_estimated = config.alpha(h_estimated)
+        visualizer.data.h_estimated.append(np.array(h_estimated))
         visualizer.data.robot_pos.append(current_state[:2])
         visualizer.data.robot_pos_estimated.append(estimated_state[:2])
         visualizer.data.robot_vel.append(current_state[2:])
@@ -509,11 +523,11 @@ def main():
         min_goal_distance=15,
         robot_size=(1, 1),
         state_std=np.array([0.1, 0.1, 0.0, 0.0]),
-        safety_margin=0.0,
+        use_safety_margin=True,
         cbf_reduction='min',
         work_dir=directory,
-        cbf_infused_a_star=True,
-        planner_comparison=False
+        cbf_infused_a_star=False,
+        planner_comparison=True
     )
     
     # create logger

@@ -2,7 +2,7 @@ import numpy as np
 import pygame
 
 class RobotBase:
-    def __init__(self, width, height, env_config, pos_goal, path=[], pos_center_start=np.zeros(2), vel_center_start=np.zeros(2), safety_margin=0.0, u_min_max=np.array([-np.inf, np.inf])):
+    def __init__(self, width, height, env_config, pos_goal, path=[], pos_center_start=np.zeros(2), vel_center_start=np.zeros(2), u_min_max=np.array([-np.inf, np.inf])):
         self.width = width                  # in m
         self.height = height                # in m
         self.radius = np.sqrt((self.width / 2)**2 + (self.height / 2)**2)    # in m (radius of circle that the robot uses)
@@ -16,7 +16,6 @@ class RobotBase:
         self.pos_goal = pos_goal            # goal position in m shape (2,)
         self.path = path                    # list of the path coordinates
         self.path_idx = 0                   # index which location is the current goal location
-        self.safety_margin = safety_margin  # in m
         self.u_min_max = u_min_max
 
     @property
