@@ -109,11 +109,12 @@ class VisualizeCBF:
         # function to plot the safety margin over time
         x = self.data.timestep
         safety_margins = self.data.safety_margin
-
-        ax.plot(x, safety_margins)
+        labels = [f"CBF {i}" for i in range(safety_margins.shape[1])]
+        ax.plot(x, safety_margins, label=labels)
         ax.set_title(f'Safety margin over time')
         ax.set_xlabel('Time step [-]')
         ax.set_ylabel('Safety margin')
+        ax.legend()
         ax.grid(True)
         return ax
 

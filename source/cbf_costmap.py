@@ -38,7 +38,8 @@ class CBFCostmap:
         states[:, :2] = pos
 
         # Get h values
-        h_values = self.cbf.h_1(states, batched=True)  # (N, num_obstacles)
+        safety_margin = np.zeros(self.cbf.num_obstacles)
+        h_values = self.cbf.h_1(states, safety_margin, True)  # (N, num_obstacles)
 
         # Apply alpha function to each
         h_alpha = self.cbf.alpha_batch(h_values)  # (N, num_obstacles)

@@ -1,11 +1,14 @@
 from cbfpy import CBFConfig, CLFCBFConfig
 import jax.numpy as jnp
+import numpy as np
 
 class RobotBaseCBFConfig(CBFConfig):
     def __init__(self, obstacles, robot):
         self.obstacles = obstacles
+        self.num_obstacles = len(obstacles)
         self.robot = robot
-        super().__init__(n=4, m=2, relax_cbf=False)
+        init_safety_margin = (np.ones(self.num_obstacles), False)
+        super().__init__(n=4, m=2, relax_cbf=False, init_args=init_safety_margin)
     
     def f(self, z):
         px, py, vx, vy = z
@@ -15,15 +18,16 @@ class RobotBaseCBFConfig(CBFConfig):
         # return jnp.block([[jnp.zeros((2, 2))], [jnp.eye(2)]])
         return jnp.block([[jnp.eye(2)], [jnp.zeros((2, 2))]])
     
-    def h_1(self, z, safety_margin=0.0, batched=False):
+    def h_1(self, z, safety_margin, batched=False):
         # batched -> faster for costmap calculation
+        # N is the number of points in the batch
         if z.ndim == 1:
             z = z[None, :]  # Reshape to (1, 4)
 
         # z: (N, 4)
         h_values = []
-        for obstacle in self.obstacles:
-            h_value = obstacle.h(z, safety_margin)  # (N,)
+        for i, obstacle in enumerate(self.obstacles):
+            h_value = obstacle.h(z, safety_margin[i])  # (N,)
             h_values.append(h_value)
         
         h_values = jnp.stack(h_values, axis=1)  # (N, num_obstacles)

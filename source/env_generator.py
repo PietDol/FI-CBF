@@ -317,13 +317,23 @@ class EnvGenerator:
                 logger.warning(f"[{timestep}]: Nan value in current_state: {current_state}")
                 break
             
+            # calculate the safety margin
+            if self.config.use_safety_margin:
+                safety_margin = uncertainty_costmap.calculate_safety_margin(
+                    epsilon=0.1,        # in the paper they use 0.4 (later this will be taken from the costmap)
+                    u_nominal=nominal_control,
+                    mode='robust'
+                )
+            else:
+                safety_margin = np.zeros(config.num_obstacles)
+            
             # safe data for visualizer  
             # for h take the true state to calculate h
             visualizer.data.timestep.append(timestep)
-            h_true = config.h_1(current_state)
+            h_true = config.h_1(current_state, safety_margin)
             h_true = config.alpha(h_true)
             visualizer.data.h_true.append(np.array(h_true))
-            h_estimated = config.h_1(estimated_state)
+            h_estimated = config.h_1(estimated_state, safety_margin)
             h_estimated = config.alpha(h_estimated)
             visualizer.data.h_estimated.append(np.array(h_estimated))
             visualizer.data.robot_pos.append(current_state[:2])
@@ -331,14 +341,6 @@ class EnvGenerator:
             visualizer.data.robot_vel.append(current_state[2:])
 
             # apply safety filter
-            if self.config.use_safety_margin:
-                safety_margin = uncertainty_costmap.calculate_safety_margin(
-                    epsilon=0.4,        # in the paper they also use 0.4 (later this will be taken from the costmap)
-                    u_nominal=nominal_control,
-                    mode='robust'
-                )
-            else:
-                safety_margin = 0.0
             u = cbf.safety_filter(estimated_state, nominal_control, safety_margin)
 
             # safe control data for visualizer
@@ -372,10 +374,10 @@ class EnvGenerator:
         visualizer.data.u_cbf.append(u)
         visualizer.data.u_nominal.append(nominal_control)
         visualizer.data.safety_margin.append(safety_margin)
-        h_true = config.h_1(current_state)
+        h_true = config.h_1(current_state, safety_margin)
         h_true = config.alpha(h_true)
         visualizer.data.h_true.append(np.array(h_true))
-        h_estimated = config.h_1(estimated_state)
+        h_estimated = config.h_1(estimated_state, safety_margin)
         h_estimated = config.alpha(h_estimated)
         visualizer.data.h_estimated.append(np.array(h_estimated))
         visualizer.data.robot_pos.append(current_state[:2])
@@ -509,7 +511,7 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=2,
+        number_of_simulations=10,
         fps=50,
         min_number_of_obstacles=5,
         max_number_of_obstacles=10,
@@ -526,8 +528,8 @@ def main():
         use_safety_margin=True,
         cbf_reduction='min',
         work_dir=directory,
-        cbf_infused_a_star=False,
-        planner_comparison=True
+        cbf_infused_a_star=True,
+        planner_comparison=False
     )
     
     # create logger
