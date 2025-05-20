@@ -8,13 +8,14 @@ from cbf_costmap import CBFCostmap
 from cbf_infused_a_star import CBFInfusedAStar
 from planner_comparison import PlannerComparison
 from a_star import AStarPlanner
-from visualization import VisualizeCBF
+from visualization import VisualizeSimulation
 from cbfpy import CBF
 import random
 from obstacles import RectangleObstacle, CircleObstacle
 import numpy as np
 import os
 from uncertainty_costmap import UncertaintyCostmap
+from perception import Perception
 
 
 class EnvGeneratorConfig:
@@ -29,6 +30,8 @@ class EnvGeneratorConfig:
                  work_dir: str, 
                  state_std: np.ndarray | float,
                  use_safety_margin: bool,
+                 number_of_sensors: int,
+                 max_sensor_noise: float,
                  fps=60,
                  robot_size=(1, 1),
                  min_number_of_obstacles=1,
@@ -48,6 +51,8 @@ class EnvGeneratorConfig:
         self.robot_size = robot_size        # in m
         self.fps = fps
         self.use_safety_margin = use_safety_margin  # bool whether to use safety margin
+        self.number_of_sensors = number_of_sensors  
+        self.max_sensor_noise = max_sensor_noise    # in m
         self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
         self.cbf_infused_a_star = cbf_infused_a_star    # bool
         self.planner_comparison = planner_comparison    # bool
@@ -102,6 +107,8 @@ class EnvGenerator:
         logger.info(f"State estimation std: {self.config.state_std}")
         logger.info(f"CBF reduction mode: {self.config.cbf_reduction}")
         logger.info(f"CBF infused A*: {self.config.cbf_infused_a_star}")
+        logger.info(f"Max standard deviation: {self.config.max_sensor_noise}")
+        logger.info(f"Number of sensors: {self.config.number_of_sensors}")
         logger.info(f"Min number of obstascles: {self.config.min_number_of_obstacles}")
         logger.info(f"Max number of obstascles: {self.config.max_number_of_obstacles}")
         for key, val in self.config.max_obstacle_size.items():
@@ -215,7 +222,7 @@ class EnvGenerator:
         # generate the obstacles
         obstacles = self._generate_obstacles(robot)
 
-        # create config and cbf based on the mode
+        # create config and cbf
         config = RobotBaseCBFConfig(obstacles, robot)
         cbf = CBF.from_config(config)
         
@@ -226,10 +233,22 @@ class EnvGenerator:
             cbf_reduction=self.config.cbf_reduction
         )
 
-        uncertainty_costmap = UncertaintyCostmap(
+        # create perception module 
+        perception = Perception(
+            costmap_size=self.config.environment_size,
             cbf=cbf,
-            min_values_state=np.array([-10, -10, -5, -5]),
-            max_values_state=np.array([10, 10, 5, 5])
+            num_sensors=self.config.number_of_sensors,
+            min_values_state=np.array([-10, -10, -1.5, -1.5]),
+            max_values_state=np.array([10, 10, 1.5, 1.5]),
+            max_sensor_noise=self.config.max_sensor_noise,
+            num_samples_per_dim=4
+        )
+
+        # create uncertainty costmap
+        uncertainty_costmap = UncertaintyCostmap(
+            costmap_size=self.config.environment_size,
+            grid_size=self.config.grid_size,
+            perception=perception
         )
 
         # generate the planner
@@ -278,22 +297,23 @@ class EnvGenerator:
 
         visualizers = {}
         for key in planners.keys():
-            visualizer = VisualizeCBF(
+            visualizer = VisualizeSimulation(
                 pos_goal=robot.pos_goal,
                 obstacles=obstacles,
                 show_plot=False
             )
             visualizers[key] = visualizer
         
-        return env, visualizers, config, cbf, planners, cbf_costmap, uncertainty_costmap
+        return env, visualizers, config, cbf, planners, cbf_costmap, perception, uncertainty_costmap
     
     def _run_planner(self, 
                      env: RobotBaseEnv, 
-                     visualizer: VisualizeCBF, 
+                     visualizer: VisualizeSimulation, 
                      config: RobotBaseCBFConfig, 
                      cbf: CBF, 
                      planner: AStarPlanner | CBFInfusedAStar, 
                      cbf_costmap: CBFCostmap, 
+                     perception: Perception,
                      uncertainty_costmap: UncertaintyCostmap,
                      env_folder: str):
         max_timesteps = env.fps * self.config.max_duration_of_simulation
@@ -303,6 +323,8 @@ class EnvGenerator:
         visualizer.data.path = env.robot_base.path
         visualizer.data.planner_costmap = planner.compute_distance_map(start=env.robot_base.position)
         visualizer.data.cbf_costmap = cbf_costmap.costmap
+        visualizer.data.uncertainty_costmap = uncertainty_costmap.costmap
+        visualizer.data.sensor_positions = perception.sensor_positions
 
         # run env
         while env.running and timestep < max_timesteps:
@@ -319,8 +341,8 @@ class EnvGenerator:
             
             # calculate the safety margin
             if self.config.use_safety_margin:
-                safety_margin = uncertainty_costmap.calculate_safety_margin(
-                    epsilon=0.1,        # in the paper they use 0.4 (later this will be taken from the costmap)
+                safety_margin = perception.calculate_safety_margin(
+                    epsilon=0.4,        # in the paper they use 0.4 (later this will be taken from the costmap)
                     u_nominal=nominal_control,
                     mode='robust'
                 )
@@ -330,7 +352,7 @@ class EnvGenerator:
             # safe data for visualizer  
             # for h take the true state to calculate h
             visualizer.data.timestep.append(timestep)
-            h_true = config.h_1(current_state, safety_margin)
+            h_true = config.h_1(current_state, np.zeros(config.num_obstacles))  # don't add safety margin here (because state is true)
             h_true = config.alpha(h_true)
             visualizer.data.h_true.append(np.array(h_true))
             h_estimated = config.h_1(estimated_state, safety_margin)
@@ -374,7 +396,7 @@ class EnvGenerator:
         visualizer.data.u_cbf.append(u)
         visualizer.data.u_nominal.append(nominal_control)
         visualizer.data.safety_margin.append(safety_margin)
-        h_true = config.h_1(current_state, safety_margin)
+        h_true = config.h_1(current_state, np.zeros(config.num_obstacles))
         h_true = config.alpha(h_true)
         visualizer.data.h_true.append(np.array(h_true))
         h_estimated = config.h_1(estimated_state, safety_margin)
@@ -416,7 +438,7 @@ class EnvGenerator:
 
     @logger.catch
     def _run_env(self, env_id):
-        env, visualizers, config, cbf, planners, cbf_costmap, uncertainty_costmap = self._generate_env_elements()
+        env, visualizers, config, cbf, planners, cbf_costmap, perception, uncertainty_costmap = self._generate_env_elements()
         success = {}
 
         # create folder for this simulation
@@ -452,6 +474,7 @@ class EnvGenerator:
                 cbf=cbf,
                 planner=planner,
                 cbf_costmap=cbf_costmap,
+                perception=perception,
                 uncertainty_costmap=uncertainty_costmap,
                 env_folder=env_folder
             )
@@ -511,7 +534,7 @@ def main():
     # cbf_mode 0: PD + CBF
     # cbf_mode 1: CLF + CBF
     config = EnvGeneratorConfig(
-        number_of_simulations=10,
+        number_of_simulations=1,
         fps=50,
         min_number_of_obstacles=5,
         max_number_of_obstacles=10,
@@ -529,7 +552,9 @@ def main():
         cbf_reduction='min',
         work_dir=directory,
         cbf_infused_a_star=True,
-        planner_comparison=False
+        planner_comparison=False,
+        number_of_sensors=10,
+        max_sensor_noise=0.1
     )
     
     # create logger

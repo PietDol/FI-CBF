@@ -11,7 +11,7 @@ from cbfpy import CBF, CLFCBF
 
 from obstacles import RectangleObstacle, CircleObstacle
 from robot_base import RobotBase
-from visualization import VisualizeCBF
+from visualization import VisualizeSimulation
 from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
 from env_config import EnvConfig
 from a_star import AStarPlanner
@@ -266,7 +266,7 @@ def main():
         raise f'Incorrect mode!'
     
     # create the visualizer object
-    visualizer = VisualizeCBF(pos_goal, planner, obstacles)
+    visualizer = VisualizeSimulation(pos_goal, planner, obstacles)
 
     # add path and costmap to visualizer
     visualizer.data.path = path["path_world"]

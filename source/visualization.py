@@ -16,6 +16,8 @@ class VisualizeData:
         self.robot_vel = []
         self.planner_costmap = []
         self.cbf_costmap = []
+        self.uncertainty_costmap = []
+        self.sensor_positions = []
         self.path = []
         self.timestep = []
         self.converted_to_numpy = False
@@ -46,7 +48,7 @@ class VisualizeData:
         logger.success(f"Visualization data saved: {dir}")
 
 
-class VisualizeCBF:
+class VisualizeSimulation:
     def __init__(self, pos_goal, obstacles=[], show_plot=True):
         self.data = VisualizeData()
         self.pos_goal = pos_goal
@@ -245,6 +247,58 @@ class VisualizeCBF:
 
         return ax
 
+    def plot_uncertainty_costmap(self, ax, planner, uncertainty_costmap=None):
+        # input of cbf_costmap is the array of the cbf_costmap
+        # the planner is the planner object
+        # get all the data
+        if uncertainty_costmap is None:
+            uncertainty_costmap = self.data.uncertainty_costmap
+        else:
+            uncertainty_costmap = np.array(uncertainty_costmap.costmap)
+        
+        path = np.array(planner.path_world)
+        robot_pos = self.data.robot_pos
+        sensor_positions = self.data.sensor_positions
+
+        # Basic min/max values for colormap
+        vmax = np.max(uncertainty_costmap)
+        vmin = np.min(uncertainty_costmap)
+
+        # Define extent in world coordinates
+        extent = [
+            *planner.grid_to_world((0, 0)),
+            *planner.grid_to_world((planner.rows, planner.cols))
+        ]
+        extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow
+
+        # Plot costmap
+        img = ax.imshow(uncertainty_costmap, cmap='plasma', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
+
+        # plot path and real trajectory
+        ax.plot(path[:, 0], path[:, 1], color='cyan', label='Planned traj')
+        ax.plot(robot_pos[:, 0], robot_pos[:, 1], color='lime', label='Robot traj')
+
+        # plot goal and start
+        ax.plot(robot_pos[0, 0], robot_pos[0, 1], 'ro', label='Start')
+        ax.plot(self.pos_goal[0], self.pos_goal[1], 'go', label='Goal')
+
+        # plot sensors 
+        ax.scatter(sensor_positions[:, 0], sensor_positions[:, 1], c='k', label='Sensor pos')
+
+        ax.set_title("Uncertainty Costmap")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.grid(True)
+        ax.axis('equal')
+        ax.legend()
+
+        # Colorbar
+        fig = ax.get_figure()
+        cbar = fig.colorbar(img, ax=ax)
+        cbar.set_label("Uncertainty (noise)", rotation=270, labelpad=15)
+
+        return ax
+
     def plot_robot_trajectory(self, ax, path=None):
         # Convert list to array
         robot_pos = self.data.robot_pos
@@ -284,7 +338,7 @@ class VisualizeCBF:
         num_colom_state = self.data.robot_pos.shape[1] + self.data.robot_vel.shape[1]
         num_coloms_control = self.data.u_nominal.shape[1] + 1   # +1 for the safety margin
         num_colom_cbfs = self.data.h_true.shape[1]
-        num_costmaps = 3
+        num_costmaps = 4
 
         # Determine number of rows and columns
         num_rows = 4
@@ -333,10 +387,13 @@ class VisualizeCBF:
 
         # costmap for cbf
         self.plot_cbf_costmap(ax=axes[3][2], planner=planner)
+
+        # costmap for uncertainty
+        self.plot_uncertainty_costmap(ax=axes[3][3], planner=planner)
         
         # remove unused subplots
-        if num_cols > 3:
-            for i in range(3, num_cols):
+        if num_cols > 4:
+            for i in range(4, num_cols):
                 fig.delaxes(axes[3][i])
 
         plt.tight_layout()

@@ -30,7 +30,7 @@ class CBFCostmap:
         # Stack into (N, 2)
         ij = np.stack((col_idx, row_idx), axis=-1).reshape(-1, 2)
 
-        # Convert grid indices to world coordinates
+        # Convert grid indices to world coordinates (N, 2)
         pos = (ij * self.grid_size) + (0.5 * self.grid_size) - (np.array(self.origin_offset) * self.grid_size)
 
         # Build full states (N, 4)
