@@ -14,7 +14,7 @@ class UncertaintyCostmap:
         self.costmap_size = costmap_size
         self.perception = perception    # perception module
         self.origin_offset = np.array(costmap_size) / (2 * self.grid_size)
-        self.costmap = self.create_costmap()
+        self.perception_magnitude_costmap = self.create_costmap(costmap_type='perception')
         logger.success("Uncertainty costmap created")
     
     def grid_to_world(self, idx):
@@ -23,7 +23,7 @@ class UncertaintyCostmap:
         pos = (ij * self.grid_size) + (0.5 * self.grid_size) - (np.array(self.origin_offset) * self.grid_size)
         return pos
     
-    def create_costmap(self):
+    def create_costmap(self, costmap_type: str):
         rows, cols = int(self.costmap_size[0] / self.grid_size), int(self.costmap_size[1] / self.grid_size)
         row_idx, col_idx = np.indices((rows, cols))
         ij = np.stack((col_idx, row_idx), axis=-1).reshape(-1, 2)   # convert to (N, 2)
@@ -32,7 +32,12 @@ class UncertaintyCostmap:
         pos = (ij * self.grid_size) + (0.5 * self.grid_size) - (np.array(self.origin_offset) * self.grid_size)
 
         # calculate the uncertainty/noise
-        # uncertainty = self.perception.get_perception_noise_batched(jnp.array(pos))  # shape (N,)
-        uncertainty = self.perception.get_perception_magnitude_batched(jnp.array(pos))  # shape (N,)
-        return np.array(uncertainty).reshape(rows, cols)
+        if costmap_type == 'noise':
+            costmap = self.perception.get_perception_noise_batched(jnp.array(pos))  # shape (N,)
+        elif costmap_type == 'perception':
+            costmap = self.perception.get_perception_magnitude_batched(jnp.array(pos))  # shape (N,)
+        else:
+            logger.error(f"Wrong costmap_type: {costmap_type}. Choose 'noise' or 'perception'")
+            costmap = np.zeros(ij.shape[0])
+        return np.array(costmap).reshape(rows, cols)
         

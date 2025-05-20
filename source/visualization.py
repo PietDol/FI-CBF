@@ -16,7 +16,7 @@ class VisualizeData:
         self.robot_vel = []
         self.planner_costmap = []
         self.cbf_costmap = []
-        self.uncertainty_costmap = []
+        self.perception_magnitude_costmap = []
         self.sensor_positions = []
         self.path = []
         self.timestep = []
@@ -247,22 +247,22 @@ class VisualizeSimulation:
 
         return ax
 
-    def plot_uncertainty_costmap(self, ax, planner, uncertainty_costmap=None):
+    def plot_perception_magnitude_costmap(self, ax, planner, perception_magnitude=None):
         # input of cbf_costmap is the array of the cbf_costmap
         # the planner is the planner object
         # get all the data
-        if uncertainty_costmap is None:
-            uncertainty_costmap = self.data.uncertainty_costmap
+        if perception_magnitude is None:
+            perception_magnitude = self.data.perception_magnitude_costmap
         else:
-            uncertainty_costmap = np.array(uncertainty_costmap.costmap)
+            perception_magnitude = np.array(perception_magnitude.costmap)
         
         path = np.array(planner.path_world)
         robot_pos = self.data.robot_pos
         sensor_positions = self.data.sensor_positions
 
         # Basic min/max values for colormap
-        vmax = np.max(uncertainty_costmap)
-        vmin = np.min(uncertainty_costmap)
+        vmax = np.max(perception_magnitude)
+        vmin = np.min(perception_magnitude)
 
         # Define extent in world coordinates
         extent = [
@@ -272,7 +272,7 @@ class VisualizeSimulation:
         extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow
 
         # Plot costmap
-        img = ax.imshow(uncertainty_costmap, cmap='plasma', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
+        img = ax.imshow(perception_magnitude, cmap='plasma', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
 
         # plot path and real trajectory
         ax.plot(path[:, 0], path[:, 1], color='cyan', label='Planned traj')
@@ -285,7 +285,7 @@ class VisualizeSimulation:
         # plot sensors 
         ax.scatter(sensor_positions[:, 0], sensor_positions[:, 1], c='k', label='Sensor pos')
 
-        ax.set_title("Uncertainty Costmap")
+        ax.set_title("Perception magnitude Costmap")
         ax.set_xlabel("x")
         ax.set_ylabel("y")
         ax.grid(True)
@@ -295,7 +295,7 @@ class VisualizeSimulation:
         # Colorbar
         fig = ax.get_figure()
         cbar = fig.colorbar(img, ax=ax)
-        cbar.set_label("Uncertainty (noise)", rotation=270, labelpad=15)
+        cbar.set_label("Perception magnitude", rotation=270, labelpad=15)
 
         return ax
 
@@ -389,7 +389,7 @@ class VisualizeSimulation:
         self.plot_cbf_costmap(ax=axes[3][2], planner=planner)
 
         # costmap for uncertainty
-        self.plot_uncertainty_costmap(ax=axes[3][3], planner=planner)
+        self.plot_perception_magnitude_costmap(ax=axes[3][3], planner=planner)
         
         # remove unused subplots
         if num_cols > 4:

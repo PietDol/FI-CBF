@@ -58,6 +58,9 @@ class RobotBase:
             return self.path[self.path_idx]
     
     def velocity_pd_controller(self, Kp=0.5, target_speed=4.0, slow_radius=3.0):
+        # call the update inter_pos_goal method to make sure that the path_idx is correct
+        self.inter_pos_goal()
+
         if len(self.path) == 0:
             return np.zeros(2)
 

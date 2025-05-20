@@ -10,10 +10,9 @@ class Sensor:
     # this class is created to simulate the sensor signal
     # basically this class generates the magnitude of the sensor signal
     # based on this magnitude we can calculate the noise (and thus epsilon for the safety margin)
-    def __init__(self, costmap_size: np.ndarray, sensor_position: np.ndarray):
-        self.costmap_size = costmap_size
+    def __init__(self, sensor_position: np.ndarray, max_distance: float = 10):
         self.sensor_position = sensor_position  # in m
-        self.max_distance = 10
+        self.max_distance = max_distance    # in m
 
     def get_sensor_magnitude(self, x_true: np.ndarray):
         # based on the true state, calculate the sensor magnitude (value between [0, 1])
@@ -23,9 +22,9 @@ class Sensor:
     def info(self, sensor_index: str = None):
         # print the info in the terminal
         if sensor_index is None:
-            logger.info(f"Sensor: location: {self.sensor_position}, costmap size: {self.costmap_size}")
+            logger.info(f"Sensor: location [m]: {self.sensor_position}, max sensor distance [m]: {self.max_distance}")
         else:
-            logger.info(f"Sensor {sensor_index}: location: {self.sensor_position}, costmap size: {self.costmap_size}")
+            logger.info(f"Sensor {sensor_index}: location [m]: {self.sensor_position}, max sensor distance [m]: {self.max_distance}")
 
 class Perception:
     # this class simulates the perception module of the robot 
@@ -38,7 +37,8 @@ class Perception:
                  max_values_state: np.ndarray,
                  max_sensor_noise: float,
                  num_samples_per_dim: int = 4,
-                 sensor_location: np.ndarray = None):
+                 sensor_location: np.ndarray = None,
+                 sensors: list = None):
         self.costmap_size = costmap_size
         self.cbf = cbf
         self.num_sensors = num_sensors
@@ -53,19 +53,22 @@ class Perception:
         # estimate the lipschitz constants
         self.L_Lfh, self.L_Lgh = self._estimate_cbf_lipschitz_constants(num_samples_per_dim)
 
-        # create the sensors
-        if sensor_location is not None:
-            if sensor_location.ndim < 2:
-                sensor_location = np.expand_dims(sensor_location, 0)
+        # create the sensors if not given
+        if sensors is None:
+            if sensor_location is not None:
+                if sensor_location.ndim < 2:
+                    sensor_location = np.expand_dims(sensor_location, 0)
 
-            if num_sensors != sensor_location.shape[0]:
-                logger.warning(f"Number of sensor != number of sensor locations {num_sensors} != {sensor_location.shape[0]}")
-                logger.info("Instead of given sensor location, generate random locations")
-                self.sensors = self.create_random_sensor_locations()
+                if num_sensors != sensor_location.shape[0]:
+                    logger.warning(f"Number of sensor != number of sensor locations {num_sensors} != {sensor_location.shape[0]}")
+                    logger.info("Instead of given sensor location, generate random locations")
+                    self.sensors = self.create_random_sensor_locations()
+                else:
+                    self.sensors = [Sensor(sensor_location[i]) for i in range(self.num_sensors)]
             else:
-                self.sensors = [Sensor(self.costmap_size, sensor_location[i]) for i in range(self.num_sensors)]
+                self.sensors = self.create_random_sensor_locations()
         else:
-            self.sensors = self.create_random_sensor_locations()
+            self.sensors = sensors
         
         # create list with sensor positions
         self.sensor_positions = [self.sensors[i].sensor_position for i in range(self.num_sensors)]
@@ -78,7 +81,7 @@ class Perception:
         for i in range(self.num_sensors):
             sx = np.round(random.uniform(-self.costmap_size[0] / 2, self.costmap_size[0] / 2), 2)
             sy = np.round(random.uniform(-self.costmap_size[1] / 2, self.costmap_size[1] / 2), 2)
-            sensors.append(Sensor(self.costmap_size, np.array([sx, sy])))
+            sensors.append(Sensor(np.array([sx, sy])))
         return sensors
     
     def get_perception_magnitude(self, x_true: np.ndarray):

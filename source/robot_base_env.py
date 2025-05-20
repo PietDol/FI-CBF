@@ -4,7 +4,6 @@ In this file we try to create an environment where a robot drives around in an e
 """
 import numpy as np
 import pygame
-import pickle
 
 from cbfpy.envs.base_env import BaseEnv
 from cbfpy import CBF, CLFCBF
@@ -56,40 +55,6 @@ class RobotBaseEnv(BaseEnv):
         self.dt = 1 / self.fps
         self.running = True
     
-    def save_env_information(self, dir):
-        # function to save the environment information into a pickle file (.pkl)
-        env_dict = {
-            'start_pos': self.robot_base.pos_center_start,
-            'start_vel': self.robot_base.vel_center_start,
-            'goal_pos': self.robot_base.pos_goal,
-            'obstacles': []
-        }
-
-        for obstacle in self.obstacles:
-            if isinstance(obstacle, CircleObstacle):
-                env_dict['obstacles'].append(
-                    {
-                        'type': 'circle',
-                        'center': obstacle.pos_center,
-                        'radius': obstacle.radius
-                    }
-                )
-            elif isinstance(obstacle, RectangleObstacle):
-                env_dict['obstacles'].append(
-                    {
-                        'type': 'rectangle',
-                        'center': obstacle.pos_center,
-                        'height': obstacle.height,
-                        'width': obstacle.width
-                    }
-                )
-        
-        # save environment parameters
-        with open(f"{dir}/env_data.pkl", "wb") as f:
-            pickle.dump(env_dict, f)
-        
-        logger.success(f"Environment data saved: {dir}/env_data.pkl")
-
     def position_to_pixels(self, pos):
         # helper function to convert the [x, y] position in m to px
         px = pos * self.env_config.pixels_per_meter + np.array([self.env_config.screen_width / 2, self.env_config.screen_height / 2])

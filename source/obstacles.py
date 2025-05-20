@@ -41,7 +41,7 @@ class Obstacle(ABC):
 
 class RectangleObstacle(Obstacle):
     # object for obstacles
-    def __init__(self, width, height, pos_center, env_config: EnvConfig, robot: RobotBase, id=int):
+    def __init__(self, width, height, pos_center, env_config: EnvConfig, robot: RobotBase, id: int):
         self.width = width                  # in m
         self.height = height                # in m
         self.pos_center = pos_center        # in m shape (2,)
