@@ -6,15 +6,24 @@ import numpy as np
 
 
 class CBFInfusedAStar(AStarPlanner):
-    def __init__(self, costmap_size, grid_size, obstacles, cbf_costmap: CBFCostmap, diagonal_movement=True):
+    def __init__(
+        self,
+        costmap_size,
+        grid_size,
+        obstacles,
+        cbf_costmap: CBFCostmap,
+        diagonal_movement=True,
+    ):
         super().__init__(costmap_size, grid_size, obstacles, diagonal_movement)
         self.cbf_costmap = cbf_costmap
-        self.combine_costmaps(True)     # update the costmap
+        self.combine_costmaps(True)  # update the costmap
 
     def combine_costmaps(self, update=True):
         # Ensure the costmaps have the same shape
         if self.costmap.shape != self.cbf_costmap.costmap.shape:
-            logger.error(f"Costmap shapes do not match! Shapes are {self.costmap.shape} and {self.cbf_costmap.costmap.shape}")
+            logger.error(
+                f"Costmap shapes do not match! Shapes are {self.costmap.shape} and {self.cbf_costmap.costmap.shape}"
+            )
             return self.costmap  # optionally return unmodified map
 
         # get unsafe regions
@@ -26,4 +35,3 @@ class CBFInfusedAStar(AStarPlanner):
             self.costmap = modified_costmap
 
         return modified_costmap
-

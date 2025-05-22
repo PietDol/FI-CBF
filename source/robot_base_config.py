@@ -2,6 +2,7 @@ from cbfpy import CBFConfig, CLFCBFConfig
 import jax.numpy as jnp
 import numpy as np
 
+
 class RobotBaseCBFConfig(CBFConfig):
     def __init__(self, obstacles, robot):
         self.obstacles = obstacles
@@ -9,15 +10,15 @@ class RobotBaseCBFConfig(CBFConfig):
         self.robot = robot
         init_safety_margin = (np.ones(self.num_obstacles), False)
         super().__init__(n=4, m=2, relax_cbf=False, init_args=init_safety_margin)
-    
+
     def f(self, z):
         px, py, vx, vy = z
         return jnp.array([vx, vy, 0, 0])
-    
+
     def g(self, z):
         # return jnp.block([[jnp.zeros((2, 2))], [jnp.eye(2)]])
         return jnp.block([[jnp.eye(2)], [jnp.zeros((2, 2))]])
-    
+
     def h_1(self, z, safety_margin, batched=False):
         # batched -> faster for costmap calculation
         # N is the number of points in the batch
@@ -29,13 +30,13 @@ class RobotBaseCBFConfig(CBFConfig):
         for i, obstacle in enumerate(self.obstacles):
             h_value = obstacle.h(z, safety_margin[i])  # (N,)
             h_values.append(h_value)
-        
+
         h_values = jnp.stack(h_values, axis=1)  # (N, num_obstacles)
 
         if not batched:
             h_values = jnp.squeeze(h_values, 0)
         return h_values
-    
+
     def alpha_batch(self, h_values):
         # h_values: (N, num_obstacles)
         # Apply alpha elementwise
@@ -47,14 +48,14 @@ class RobotBaseCLFCBFConfig(CLFCBFConfig):
         self.obstacles = obstacles
         self.robot = robot
         super().__init__(n=4, m=2, relax_cbf=False)
-    
+
     def f(self, z):
         px, py, vx, vy = z
         return jnp.array([vx, vy, 0, 0])
-    
+
     def g(self, z):
         return jnp.block([[jnp.eye(2)], [jnp.zeros((2, 2))]])
-    
+
     def h_1(self, z):
         h_values = []
 
@@ -62,10 +63,8 @@ class RobotBaseCLFCBFConfig(CLFCBFConfig):
             h_value = obstacle.h(z)
             h_values.append(h_value)
         return jnp.array(h_values)
-    
+
     def V_1(self, z):
         px, py, vx, vy = z
         c_robot = jnp.array([px, py])
-        return jnp.array((c_robot - self.robot.pos_goal) **2)
-
-    
+        return jnp.array((c_robot - self.robot.pos_goal) ** 2)

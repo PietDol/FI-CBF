@@ -19,54 +19,58 @@ from perception import Perception, Sensor
 
 
 class EnvGeneratorConfig:
-    def __init__(self, 
-                 number_of_simulations: int, 
-                 environment_size: tuple,
-                 grid_size: float,
-                 max_obstacle_size: dict,
-                 max_duration_of_simulation: float,
-                 min_goal_distance: float,
-                 work_dir: str, 
-                 use_safety_margin: bool,
-                 max_sensor_noise: float,
-                 cbf_state_uncertainty_mode: str,
-                 fps=60,
-                 robot_size=(1, 1),
-                 min_number_of_obstacles=1,
-                 max_number_of_obstacles=1,
-                 min_number_of_sensors=1,
-                 max_number_of_sensors=1,
-                 cbf_reduction='min',
-                 cbf_infused_a_star=False,
-                 planner_comparison=False):
+    def __init__(
+        self,
+        number_of_simulations: int,
+        environment_size: tuple,
+        grid_size: float,
+        max_obstacle_size: dict,
+        max_duration_of_simulation: float,
+        min_goal_distance: float,
+        work_dir: str,
+        use_safety_margin: bool,
+        max_sensor_noise: float,
+        cbf_state_uncertainty_mode: str,
+        fps=60,
+        robot_size=(1, 1),
+        min_number_of_obstacles=1,
+        max_number_of_obstacles=1,
+        min_number_of_sensors=1,
+        max_number_of_sensors=1,
+        cbf_reduction="min",
+        cbf_infused_a_star=False,
+        planner_comparison=False,
+    ):
         # general parameters
         self.number_of_simulations = number_of_simulations
-        self.max_duration_of_simulation = max_duration_of_simulation    # in seconds
-        self.min_goal_distance = min_goal_distance      # in m
+        self.max_duration_of_simulation = max_duration_of_simulation  # in seconds
+        self.min_goal_distance = min_goal_distance  # in m
         self.work_dir = work_dir
         self.fps = fps
-        self.planner_comparison = planner_comparison    # bool
+        self.planner_comparison = planner_comparison  # bool
 
         # environment parameters (robot and obstacles)
-        self.environment_size = environment_size                        # in m
-        self.robot_size = robot_size        # in m
+        self.environment_size = environment_size  # in m
+        self.robot_size = robot_size  # in m
         self.min_number_of_obstacles = min_number_of_obstacles
         self.max_number_of_obstacles = max_number_of_obstacles
-        self.max_obstacle_size = max_obstacle_size                      # in m
-        
+        self.max_obstacle_size = max_obstacle_size  # in m
+
         # costmap parameters
-        self.grid_size = grid_size                                      # in m
-        
+        self.grid_size = grid_size  # in m
+
         # cbf parameters
-        self.cbf_state_uncertainty_mode = cbf_state_uncertainty_mode    # choose between robust or probabilistic
+        self.cbf_state_uncertainty_mode = (
+            cbf_state_uncertainty_mode  # choose between robust or probabilistic
+        )
         self.use_safety_margin = use_safety_margin  # bool whether to use safety margin
         self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
-        self.cbf_infused_a_star = cbf_infused_a_star    # bool
-        
+        self.cbf_infused_a_star = cbf_infused_a_star  # bool
+
         # perception parameters
         self.min_number_of_sensors = min_number_of_sensors
-        self.max_number_of_sensors = max_number_of_sensors  
-        self.max_sensor_noise = max_sensor_noise    # in m
+        self.max_number_of_sensors = max_number_of_sensors
+        self.max_sensor_noise = max_sensor_noise  # in m
 
     def log_information(self):
         logger.info(f"Workdir: {self.work_dir}")
@@ -87,20 +91,21 @@ class EnvGeneratorConfig:
         logger.info(f"Max number of obstascles: {self.max_number_of_obstacles}")
         for key, val in self.max_obstacle_size.items():
             logger.info(f"Max obstacle size for {key}: {val} m")
-    
+
     def save_to_file(self, path: str):
         # Convert all class attributes to a serializable dict
         config_dict = self.__dict__.copy()
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             json.dump(config_dict, f, indent=4)
         logger.success(f"Configuration saved to {path}")
-    
+
     @classmethod
     def from_file(cls, path: str):
-        with open(path, 'r') as f:
+        with open(path, "r") as f:
             config_dict = json.load(f)
         logger.success(f"Configuration loade from {path}")
         return cls(**config_dict)
+
 
 class EnvGenerator:
     # this class is able to do multiple runs behind each other and creates nice logs
@@ -112,17 +117,17 @@ class EnvGenerator:
 
         # create the env_config (mainly needed for switching the x and y dimension)
         self.env_config = EnvConfig(
-            pixels_per_meter=50 * np.array([1, -1]),
-            screen_width=800,
-            screen_height=800
+            pixels_per_meter=50 * np.array([1, -1]), screen_width=800, screen_height=800
         )
         self.pygame_screen = False  # we dont want the pygame screen to pops up
         self.work_dir_available = self._create_work_dir()
 
         # create workdir to save all the combined image (only if there is no comparison)
         if not self.config.planner_comparison:
-            os.makedirs(f"{self.config.work_dir}/simulation_results/all_envs", exist_ok=True)
-        
+            os.makedirs(
+                f"{self.config.work_dir}/simulation_results/all_envs", exist_ok=True
+            )
+
         # log all the important information
         self.config.log_information()
 
@@ -149,87 +154,101 @@ class EnvGenerator:
                     continue
 
             return False
-    
-    def save_env_information(self, dir, robot: RobotBase, obstacles: list, sensors: list):
+
+    def save_env_information(
+        self, dir, robot: RobotBase, obstacles: list, sensors: list
+    ):
         # Prepare dictionary with only JSON-serializable data
         env_dict = {
-            'start_pos': robot.pos_center_start.tolist(),
-            'start_vel': robot.vel_center_start.tolist(),
-            'goal_pos': robot.pos_goal.tolist(),
-            'obstacles': [],
-            'sensors': []
+            "start_pos": robot.pos_center_start.tolist(),
+            "start_vel": robot.vel_center_start.tolist(),
+            "goal_pos": robot.pos_goal.tolist(),
+            "obstacles": [],
+            "sensors": [],
         }
 
         for obstacle in obstacles:
             if isinstance(obstacle, CircleObstacle):
-                env_dict['obstacles'].append({
-                    'type': 'circle',
-                    'center': obstacle.pos_center.tolist(),
-                    'radius': obstacle.radius
-                })
+                env_dict["obstacles"].append(
+                    {
+                        "type": "circle",
+                        "center": obstacle.pos_center.tolist(),
+                        "radius": obstacle.radius,
+                    }
+                )
             elif isinstance(obstacle, RectangleObstacle):
-                env_dict['obstacles'].append({
-                    'type': 'rectangle',
-                    'center': obstacle.pos_center.tolist(),
-                    'height': obstacle.height,
-                    'width': obstacle.width
-                })
-        
+                env_dict["obstacles"].append(
+                    {
+                        "type": "rectangle",
+                        "center": obstacle.pos_center.tolist(),
+                        "height": obstacle.height,
+                        "width": obstacle.width,
+                    }
+                )
+
         for sensor in sensors:
-            env_dict['sensors'].append({
-                'center': sensor.sensor_position.tolist(),
-                'max_distance': sensor.max_distance
-            })
+            env_dict["sensors"].append(
+                {
+                    "center": sensor.sensor_position.tolist(),
+                    "max_distance": sensor.max_distance,
+                }
+            )
 
         # Save to JSON file
         json_path = f"{dir}/env_data.json"
         with open(json_path, "w") as f:
             json.dump(env_dict, f, indent=4)
-        
+
         logger.success(f"Environment data saved: {json_path}")
-    
+
     def load_env_information(self, json_path):
         with open(json_path, "r") as f:
             env_dict = json.load(f)
 
         # Convert robot state to NumPy arrays
-        start_pos = np.array(env_dict['start_pos'])
-        start_vel = np.array(env_dict['start_vel'])
-        goal_pos = np.array(env_dict['goal_pos'])
+        start_pos = np.array(env_dict["start_pos"])
+        start_vel = np.array(env_dict["start_vel"])
+        goal_pos = np.array(env_dict["goal_pos"])
 
         # Reconstruct obstacles
         obstacles = []
-        for i, obs in enumerate(env_dict['obstacles']):
-            if obs['type'] == 'circle':
-                obstacles.append(CircleObstacle(
-                    pos_center=np.array(obs['center']),
-                    radius=obs['radius'],
-                    env_config=self.env_config,
-                    robot=None,
-                    id=i
-                ))
-            elif obs['type'] == 'rectangle':
-                obstacles.append(RectangleObstacle(
-                    pos_center=np.array(obs['center']),
-                    height=obs['height'],
-                    width=obs['width'],
-                    env_config=self.env_config,
-                    robot=None,
-                    id=i
-                ))
-        
+        for i, obs in enumerate(env_dict["obstacles"]):
+            if obs["type"] == "circle":
+                obstacles.append(
+                    CircleObstacle(
+                        pos_center=np.array(obs["center"]),
+                        radius=obs["radius"],
+                        env_config=self.env_config,
+                        robot=None,
+                        id=i,
+                    )
+                )
+            elif obs["type"] == "rectangle":
+                obstacles.append(
+                    RectangleObstacle(
+                        pos_center=np.array(obs["center"]),
+                        height=obs["height"],
+                        width=obs["width"],
+                        env_config=self.env_config,
+                        robot=None,
+                        id=i,
+                    )
+                )
+
         # reconstruct sensors
         sensors = []
-        for sensor in env_dict['sensors']:
-            sensors.append(Sensor(
-                sensor_position=np.array(sensor['center']),
-                max_distance=sensor['max_distance']
-            ))
-        
+        for sensor in env_dict["sensors"]:
+            sensors.append(
+                Sensor(
+                    sensor_position=np.array(sensor["center"]),
+                    max_distance=sensor["max_distance"],
+                )
+            )
+
         logger.success(f"Environment data loaded: {json_path}")
 
         return start_pos, start_vel, goal_pos, obstacles, sensors
-    
+
     def _generate_goal(self, robot_pos, max_tries=1000):
         cx, cy = robot_pos
         max_dist = 0
@@ -244,9 +263,11 @@ class EnvGenerator:
                 max_goal = np.array([gx, gy])
                 max_dist = dist
 
-        logger.error(f"Unable to find goal location after {max_tries} tries. Max goal used with distance {max_dist}: {(gx, gy)} ")
+        logger.error(
+            f"Unable to find goal location after {max_tries} tries. Max goal used with distance {max_dist}: {(gx, gy)} "
+        )
         return max_goal
-    
+
     def _check_collision(self, robot, obstacles, generation=False):
         # checks if there is a collision between robot and obstacles
         obs_to_keep = []
@@ -260,24 +281,34 @@ class EnvGenerator:
 
             if generation:
                 if collision:
-                    logger.info(f"Robot in collision with obstacle (id={obstacle.id}), remove obstacle.")
+                    logger.info(
+                        f"Robot in collision with obstacle (id={obstacle.id}), remove obstacle."
+                    )
                     obs_to_keep.append(False)
                 elif not goal_feasible:
-                    logger.info(f"Goal position in collision with obstacle (id={obstacle.id}), remove obstacle.")
+                    logger.info(
+                        f"Goal position in collision with obstacle (id={obstacle.id}), remove obstacle."
+                    )
                     obs_to_keep.append(False)
                 else:
-                    obs_to_keep.append(True)    
+                    obs_to_keep.append(True)
             elif not generation and collision:
-                logger.error(f"Collision between robot and obstacle (id={obstacle.id})! Robot position: {robot.position}")
+                logger.error(
+                    f"Collision between robot and obstacle (id={obstacle.id})! Robot position: {robot.position}"
+                )
 
         if generation:
-            filtered_obstacles = [obstacle for obstacle, keep in zip(obstacles, obs_to_keep) if keep]
+            filtered_obstacles = [
+                obstacle for obstacle, keep in zip(obstacles, obs_to_keep) if keep
+            ]
             return filtered_obstacles
-    
+
     def _generate_obstacles(self, robot: RobotBase, max_tries=1000):
         obstacles = []
         for i in range(max_tries):
-            number_of_obstacles = random.randint(self.config.min_number_of_obstacles, self.config.max_number_of_obstacles)
+            number_of_obstacles = random.randint(
+                self.config.min_number_of_obstacles, self.config.max_number_of_obstacles
+            )
 
             for i in range(number_of_obstacles):
                 shape = random.choice(["circle", "rectangle"])
@@ -286,39 +317,57 @@ class EnvGenerator:
                 pos_center = np.array([cx, cy])
 
                 if shape == "circle":
-                    radius = np.round(random.uniform(1, self.config.max_obstacle_size["circle"]), 2)
+                    radius = np.round(
+                        random.uniform(1, self.config.max_obstacle_size["circle"]), 2
+                    )
                     obstacle = CircleObstacle(
                         radius=radius,
                         pos_center=pos_center,
                         env_config=self.env_config,
                         robot=robot,
-                        id=i
+                        id=i,
                     )
 
-                    logger.info(f"Generated CircleObstacle (id={i}) - center: {pos_center}, radius: {radius}")
+                    logger.info(
+                        f"Generated CircleObstacle (id={i}) - center: {pos_center}, radius: {radius}"
+                    )
                 elif shape == "rectangle":
-                    width = np.round(random.uniform(1, self.config.max_obstacle_size["rectangle"][0]), 2)
-                    height = np.round(random.uniform(1, self.config.max_obstacle_size["rectangle"][1]), 2)
+                    width = np.round(
+                        random.uniform(
+                            1, self.config.max_obstacle_size["rectangle"][0]
+                        ),
+                        2,
+                    )
+                    height = np.round(
+                        random.uniform(
+                            1, self.config.max_obstacle_size["rectangle"][1]
+                        ),
+                        2,
+                    )
                     obstacle = RectangleObstacle(
                         width=width,
                         height=height,
                         pos_center=pos_center,
                         env_config=self.env_config,
                         robot=robot,
-                        id=i
+                        id=i,
                     )
-                    logger.info(f"Generated RectangleObstacle (id={i}) - center: {pos_center}, width: {width}, height: {height}")
-                
+                    logger.info(
+                        f"Generated RectangleObstacle (id={i}) - center: {pos_center}, width: {width}, height: {height}"
+                    )
+
                 obstacles.append(obstacle)
-            
+
             # check if they are in collision
             obstacles = self._check_collision(robot, obstacles, generation=True)
 
             if len(obstacles) > 0:
                 return obstacles
-        
-        logger.error(f"Not able to generate obstacles after {max_tries} tries. This iteration will be skipped.")
-        return []        
+
+        logger.error(
+            f"Not able to generate obstacles after {max_tries} tries. This iteration will be skipped."
+        )
+        return []
 
     def _generate_env_elements(self, loaded_env_dir: str = None):
         if loaded_env_dir is None:
@@ -332,7 +381,7 @@ class EnvGenerator:
                 height=self.config.robot_size[1],
                 env_config=self.env_config,
                 pos_goal=pos_goal,
-                pos_center_start=np.array([robot_x, robot_y])
+                pos_center_start=np.array([robot_x, robot_y]),
             )
             logger.info(f"Robot start: {robot.position}, goal: {robot.pos_goal}")
 
@@ -342,14 +391,16 @@ class EnvGenerator:
             # set sensors to None to create sensors
             sensors = None
         else:
-            start_pos, start_vel, pos_goal, obstacles, sensors = self.load_env_information(loaded_env_dir)
+            start_pos, start_vel, pos_goal, obstacles, sensors = (
+                self.load_env_information(loaded_env_dir)
+            )
             robot = RobotBase(
                 width=self.config.robot_size[0],
                 height=self.config.robot_size[1],
                 env_config=self.env_config,
                 pos_goal=pos_goal,
                 pos_center_start=start_pos,
-                vel_center_start=start_vel
+                vel_center_start=start_vel,
             )
 
             # add robot to obstacles
@@ -359,16 +410,18 @@ class EnvGenerator:
         # create config and cbf
         config = RobotBaseCBFConfig(obstacles, robot)
         cbf = CBF.from_config(config)
-        
+
         cbf_costmap = CBFCostmap(
             costmap_size=self.config.environment_size,
             grid_size=self.config.grid_size,
             cbf=config,
-            cbf_reduction=self.config.cbf_reduction
+            cbf_reduction=self.config.cbf_reduction,
         )
 
         # create perception module (costmap included)
-        num_sensors = random.randint(self.config.min_number_of_sensors, self.config.max_number_of_sensors)
+        num_sensors = random.randint(
+            self.config.min_number_of_sensors, self.config.max_number_of_sensors
+        )
         perception = Perception(
             costmap_size=self.config.environment_size,
             grid_size=self.config.grid_size,
@@ -378,7 +431,7 @@ class EnvGenerator:
             max_values_state=np.array([10, 10, 1.5, 1.5]),
             max_sensor_noise=self.config.max_sensor_noise,
             num_samples_per_dim=4,
-            sensors=sensors
+            sensors=sensors,
         )
 
         # generate the planner
@@ -388,14 +441,14 @@ class EnvGenerator:
                 costmap_size=self.config.environment_size,
                 grid_size=self.config.grid_size,
                 obstacles=obstacles,
-                cbf_costmap=cbf_costmap
+                cbf_costmap=cbf_costmap,
             )
             planners["CBF infused A*"] = planner
         else:
             planner = AStarPlanner(
                 costmap_size=self.config.environment_size,
                 grid_size=self.config.grid_size,
-                obstacles=obstacles
+                obstacles=obstacles,
             )
             planners["A*"] = planner
 
@@ -404,7 +457,7 @@ class EnvGenerator:
                 other_planner = AStarPlanner(
                     costmap_size=self.config.environment_size,
                     grid_size=self.config.grid_size,
-                    obstacles=obstacles
+                    obstacles=obstacles,
                 )
                 planners["A*"] = other_planner
             else:
@@ -412,47 +465,51 @@ class EnvGenerator:
                     costmap_size=self.config.environment_size,
                     grid_size=self.config.grid_size,
                     obstacles=obstacles,
-                    cbf_costmap=cbf_costmap
+                    cbf_costmap=cbf_costmap,
                 )
                 planners["CBF infused A*"] = other_planner
-        
+
         # create environment
         env = RobotBaseEnv(
             env_config=self.env_config,
             robot_base=robot,
             obstacles=obstacles,
             pygame_screen=self.pygame_screen,
-            fps=self.config.fps
+            fps=self.config.fps,
         )
 
         visualizers = {}
         for key in planners.keys():
             visualizer = VisualizeSimulation(
-                pos_goal=robot.pos_goal,
-                obstacles=obstacles,
-                show_plot=False
+                pos_goal=robot.pos_goal, obstacles=obstacles, show_plot=False
             )
             visualizers[key] = visualizer
-        
+
         return env, visualizers, config, cbf, planners, cbf_costmap, perception
-    
-    def _run_planner(self, 
-                     env: RobotBaseEnv, 
-                     visualizer: VisualizeSimulation, 
-                     config: RobotBaseCBFConfig, 
-                     cbf: CBF, 
-                     planner: AStarPlanner | CBFInfusedAStar, 
-                     cbf_costmap: CBFCostmap, 
-                     perception: Perception,
-                     env_folder: str):
+
+    def _run_planner(
+        self,
+        env: RobotBaseEnv,
+        visualizer: VisualizeSimulation,
+        config: RobotBaseCBFConfig,
+        cbf: CBF,
+        planner: AStarPlanner | CBFInfusedAStar,
+        cbf_costmap: CBFCostmap,
+        perception: Perception,
+        env_folder: str,
+    ):
         max_timesteps = env.fps * self.config.max_duration_of_simulation
         timestep = 0
 
         # add path and costmaps to visualizer
         visualizer.data.path = env.robot_base.path
-        visualizer.data.planner_costmap = planner.compute_distance_map(start=env.robot_base.position)
+        visualizer.data.planner_costmap = planner.compute_distance_map(
+            start=env.robot_base.position
+        )
         visualizer.data.cbf_costmap = cbf_costmap.costmap
-        visualizer.data.perception_magnitude_costmap = perception.perception_magnitude_costmap
+        visualizer.data.perception_magnitude_costmap = (
+            perception.perception_magnitude_costmap
+        )
         visualizer.data.noise_costmap = perception.noise_costmap
         visualizer.data.sensor_positions = perception.sensor_positions
 
@@ -460,29 +517,33 @@ class EnvGenerator:
         while env.running and timestep < max_timesteps:
             current_state = env.get_state()
             estimated_state = perception.get_estimated_state(current_state)
-            
+
             # calculate nominal control
             # nominal_control = pd_controller(pos_des, estimated_state[:2], estimated_state[2:])
             nominal_control = env.robot_base.velocity_pd_controller()
             if np.isnan(current_state).any():
-                logger.warning(f"[{timestep}]: Nan value in current_state: {current_state}")
+                logger.warning(
+                    f"[{timestep}]: Nan value in current_state: {current_state}"
+                )
                 break
-            
+
             # calculate the safety margin
             if self.config.use_safety_margin:
                 noise = perception.get_perception_noise(x_true=current_state[:2])
                 safety_margin = perception.calculate_safety_margin(
-                    noise=noise,      
+                    noise=noise,
                     u_nominal=nominal_control,
-                    mode=self.config.cbf_state_uncertainty_mode
+                    mode=self.config.cbf_state_uncertainty_mode,
                 )
             else:
                 safety_margin = np.zeros(config.num_obstacles)
-            
-            # safe data for visualizer  
+
+            # safe data for visualizer
             # for h take the true state to calculate h
             visualizer.data.timestep.append(timestep)
-            h_true = config.h_1(current_state, np.zeros(config.num_obstacles))  # don't add safety margin here (because state is true)
+            h_true = config.h_1(
+                current_state, np.zeros(config.num_obstacles)
+            )  # don't add safety margin here (because state is true)
             h_true = config.alpha(h_true)
             visualizer.data.h_true.append(np.array(h_true))
             h_estimated = config.h_1(estimated_state, safety_margin)
@@ -499,21 +560,27 @@ class EnvGenerator:
             visualizer.data.u_cbf.append(u)
             visualizer.data.u_nominal.append(nominal_control)
             visualizer.data.safety_margin.append(safety_margin)
-            
+
             # change environment
             env.apply_control(u)
-            self._check_collision(robot=env.robot_base, obstacles=env.obstacles, generation=False)
+            self._check_collision(
+                robot=env.robot_base, obstacles=env.obstacles, generation=False
+            )
             env.step()
-            
+
             # increment timestep
             timestep += 1
-        
+
         # check the maximum tolerance as an effect of the state estimation uncertainty
-        if env.robot_base.check_goal_reached(tolerance=self.config.grid_size + self.config.max_sensor_noise + 0.01):
+        if env.robot_base.check_goal_reached(
+            tolerance=self.config.grid_size + self.config.max_sensor_noise + 0.01
+        ):
             logger.success(f"Goal reached in {timestep} timesteps.")
             goal_reached = True
         else:
-            logger.warning(f"Simulation ended without reaching the goal. Timesteps: {timestep}")
+            logger.warning(
+                f"Simulation ended without reaching the goal. Timesteps: {timestep}"
+            )
             goal_reached = False
 
         # add last information for visualizer
@@ -530,12 +597,12 @@ class EnvGenerator:
         visualizer.data.robot_pos.append(current_state[:2])
         visualizer.data.robot_pos_estimated.append(estimated_state[:2])
         visualizer.data.robot_vel.append(current_state[2:])
-        
+
         # set planner filenames
-        if isinstance(planner,  CBFInfusedAStar):
-            planner_filename = 'cbf_infused_a_star'
+        if isinstance(planner, CBFInfusedAStar):
+            planner_filename = "cbf_infused_a_star"
         else:
-            planner_filename = 'a_star'
+            planner_filename = "a_star"
 
         # save the data
         visualizer.data.save_data(dir=f"{env_folder}/{planner_filename}")
@@ -545,15 +612,15 @@ class EnvGenerator:
             filename = f"{env_folder}/{planner_filename}_success.png"
         else:
             filename = f"{env_folder}/{planner_filename}_fail.png"
-        
+
         filename = [filename]
         if not self.config.planner_comparison:
-            env_number = env_folder.split('_')[-1]
+            env_number = env_folder.split("_")[-1]
             if goal_reached:
                 _filename = f"{self.config.work_dir}/simulation_results/all_envs/{env_number}_success.png"
             else:
                 _filename = f"{self.config.work_dir}/simulation_results/all_envs/{env_number}_fail.png"
-            
+
             filename.append(_filename)
 
         visualizer.create_full_plot(planner, filename)
@@ -563,16 +630,18 @@ class EnvGenerator:
 
     @logger.catch
     def _run_env(self, env_folder, loaded_env_dir=None):
-        env, visualizers, config, cbf, planners, cbf_costmap, perception = self._generate_env_elements(loaded_env_dir)
+        env, visualizers, config, cbf, planners, cbf_costmap, perception = (
+            self._generate_env_elements(loaded_env_dir)
+        )
         # perception.add_sensor(Sensor(sensor_position=np.array([6, -1])))
         success = {}
 
         # save the environment parameters
         self.save_env_information(
-            dir=env_folder, 
-            robot=env.robot_base, 
+            dir=env_folder,
+            robot=env.robot_base,
             obstacles=env.obstacles,
-            sensors=perception.sensors
+            sensors=perception.sensors,
         )
 
         for planner_name, planner in planners.items():
@@ -582,13 +651,13 @@ class EnvGenerator:
             env.robot_base.reset()
             path = planner.plan(
                 start_coords=env.robot_base.position,
-                goal_coords=env.robot_base.pos_goal
+                goal_coords=env.robot_base.pos_goal,
             )
 
             # if no path go to the next planner
             if path is None:
                 logger.error(f"No path found! Skip this planner!")
-                success[planner_name] = None 
+                success[planner_name] = None
                 continue
 
             # path found -> add the path, activate the environment and run the planner
@@ -602,39 +671,41 @@ class EnvGenerator:
                 planner=planner,
                 cbf_costmap=cbf_costmap,
                 perception=perception,
-                env_folder=env_folder
+                env_folder=env_folder,
             )
             success[planner_name] = goal_reached
-        
+
         if self.config.planner_comparison:
             planner_comparison = PlannerComparison(
                 a_star_planner=planners["A*"],
                 cbf_a_star_planner=planners["CBF infused A*"],
-                visualizers=visualizers
+                visualizers=visualizers,
             )
             planner_comparison.plot_comparison(f"{env_folder}/planner_comparison.png")
 
         return success
 
     def run_env_from_file(self, env_file: str, env_folder: str):
-        # run an environment from a file 
+        # run an environment from a file
         # create folder for this simulation
         env_folder = f"{self.config.work_dir}/simulation_results/{env_folder}"
         os.makedirs(env_folder, exist_ok=True)
 
         # run the env
         succeed = self._run_env(env_folder=env_folder, loaded_env_dir=env_file)
-    
+
     def __call__(self):
         # check if work_dir is available
         if not self.work_dir_available:
             return
-        
+
         results_per_planner = {}
-        
+
         # iterate for all the different elements
         for i in range(self.config.number_of_simulations):
-            logger.info(f"Start environment {(i+1)}/{self.config.number_of_simulations}")
+            logger.info(
+                f"Start environment {(i+1)}/{self.config.number_of_simulations}"
+            )
 
             # create folder for this simulation
             env_folder = f"{self.config.work_dir}/simulation_results/env_{i+1}"
@@ -646,20 +717,22 @@ class EnvGenerator:
             if i == 0:
                 for key in succeed.keys():
                     results_per_planner[key] = {
-                        'reached': 0,
-                        'not reached': 0,
-                        'no path': 0,
+                        "reached": 0,
+                        "not reached": 0,
+                        "no path": 0,
                     }
 
             for key, reached in succeed.items():
                 if reached and isinstance(reached, bool):
-                    results_per_planner[key]['reached'] += 1
+                    results_per_planner[key]["reached"] += 1
                 elif not reached and isinstance(reached, bool):
-                    results_per_planner[key]['not reached'] += 1
+                    results_per_planner[key]["not reached"] += 1
                 elif reached is None:
-                    results_per_planner[key]['no path'] += 1
-        
-        logger.success(f"Simulations done: {self.config.number_of_simulations} executed.")
+                    results_per_planner[key]["no path"] += 1
+
+        logger.success(
+            f"Simulations done: {self.config.number_of_simulations} executed."
+        )
 
         # log all the results
         for planner_name, results in results_per_planner.items():
@@ -670,8 +743,8 @@ class EnvGenerator:
 
 
 def main():
-    directory = './runs/debug_1'
-    
+    directory = "./runs/debug_1"
+
     # config = EnvGeneratorConfig(
     #     number_of_simulations=1,
     #     fps=50,
@@ -695,7 +768,7 @@ def main():
     #     max_sensor_noise=0.1
     # )
     config = EnvGeneratorConfig.from_file("./runs/debug/env_config.json")
-    
+
     # create logger
     logger.add(f"{config.work_dir}/simulations.log", rotation="10 MB")
 
@@ -704,12 +777,13 @@ def main():
 
     # apply same environment for debugging
     envs.run_env_from_file(
-        env_file='./runs/debug/simulation_results/env_6/env_data.json',
-        env_folder='loaded_env'
+        env_file="./runs/debug/simulation_results/env_6/env_data.json",
+        env_folder="loaded_env",
     )
 
     # apply the simulations
     # envs()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
