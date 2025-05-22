@@ -10,7 +10,7 @@ from cbfpy import CBF, CLFCBF
 
 from obstacles import RectangleObstacle, CircleObstacle
 from robot_base import RobotBase
-from visualization import VisualizeCBF
+from visualization import VisualizeSimulation
 from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
 from env_config import EnvConfig
 from a_star import AStarPlanner
@@ -54,7 +54,7 @@ class RobotBaseEnv(BaseEnv):
         self.fps = fps
         self.dt = 1 / self.fps
         self.running = True
-
+    
     def position_to_pixels(self, pos):
         # helper function to convert the [x, y] position in m to px
         px = pos * self.env_config.pixels_per_meter + np.array([self.env_config.screen_width / 2, self.env_config.screen_height / 2])
@@ -62,29 +62,6 @@ class RobotBaseEnv(BaseEnv):
 
     def get_state(self) -> np.array:
         return np.concatenate((self.robot_base.position, self.robot_base.velocity))
-    
-    def get_estimated_state(self, std: np.ndarray | float):
-        # function to do the state estimation 
-        # it adds the given noise to the true state. if the shapes are not the same, the true state is returned
-        true_state = self.get_state()
-        
-        # add the noise to the true state
-        if isinstance(std, float):
-            noise = np.random.normal(loc=0.0, scale=std, size=true_state.shape)
-            estimated_state = true_state + noise
-        elif isinstance(std, np.ndarray):
-            # check the shapes
-            if true_state.shape != std.shape:
-                logger.error(f"Shapes of state and stds are not the same: {true_state.shape} != {std.shape}")
-                logger.warning("State estimation not possible. Return true state.")
-                estimated_state = true_state
-            else:
-                estimated_state = true_state + std
-        else:
-            logger.error(f"Unsupported type: {type(std)}")
-        
-        # return the estimated state
-        return estimated_state
     
     def get_desired_state(self):
         return self.robot_base.inter_pos_goal()
@@ -148,7 +125,7 @@ class RobotBaseEnv(BaseEnv):
             pygame.time.Clock().tick(self.fps)
 
     
-def pd_controller(pos_des, pos_current, vel_current, Kp=0.5, Kd=0.3):
+def pd_controller(pos_des, pos_current, vel_current, Kp=0.2, Kd=0.1):
     """
     PD controller to drive the robot towards the goal with less overshoot.
     
@@ -228,12 +205,12 @@ def main():
         raise f'Incorrect mode!'
     
     # create the visualizer object
-    visualizer = VisualizeCBF(pos_goal, planner, obstacles)
+    visualizer = VisualizeSimulation(pos_goal, planner, obstacles)
 
     # add path and costmap to visualizer
-    visualizer.data["path"] = path["path_world"]
-    visualizer.data["costmap"] = planner.costmap
-    visualizer.data["display_map"] = planner.compute_distance_map(start=start)
+    visualizer.data.path = path["path_world"]
+    visualizer.data.costmap = planner.costmap
+    visualizer.data.display_map = planner.compute_distance_map(start=start)
 
     while env.running:
         current_state = env.get_state()
@@ -247,8 +224,8 @@ def main():
         # safe data for visualizer
         h = config.h_1(current_state)
         h = config.alpha(h)
-        visualizer.data['h'].append(np.array(h))
-        visualizer.data['robot_pos'].append(current_state[:2])
+        visualizer.data.h_true.append(np.array(h))
+        visualizer.data.robot_pos.append(current_state[:2])
 
         # apply safety filter
         if mode == 0:
@@ -258,26 +235,26 @@ def main():
             nominal_control = config.V_1(current_state)
 
         # safe control data for visualizer
-        visualizer.data['control_input']['u_cbf'].append(u)
-        visualizer.data['control_input']['u_nominal'].append(nominal_control)
+        visualizer.data.u_cbf.append(u)
+        visualizer.data.u_nominal.append(nominal_control)
         
         # change environment
         env.apply_control(u)
         env.step()
     
     # add last information for visualizer
-    visualizer.data['control_input']['u_cbf'].append(u)
-    visualizer.data['control_input']['u_nominal'].append(nominal_control)
+    visualizer.data.u_cbf.append(u)
+    visualizer.data.u_nominal.append(nominal_control)
     h = config.h_1(current_state)
     h = config.alpha(h)
-    visualizer.data['h'].append(np.array(h))
-    visualizer.data['robot_pos'].append(current_state[:2])
+    visualizer.data.h_true.append(np.array(h))
+    visualizer.data.robot_pos.append(current_state[:2])
 
     # ensure Pygame window is fully closed before proceeding
     pygame.quit()
 
     # generate drawings
-    visualizer.create_plot(['control_input', 'h', 'robot_pos'])
+    visualizer.create_full_plot()
 
 if __name__ == "__main__":
     main()

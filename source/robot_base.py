@@ -2,7 +2,7 @@ import numpy as np
 import pygame
 
 class RobotBase:
-    def __init__(self, width, height, env_config, pos_goal, path=[], pos_center_start=np.zeros(2), vel_center_start=np.zeros(2), safety_margin=0.0, u_min_max=np.array([-np.inf, np.inf])):
+    def __init__(self, width, height, env_config, pos_goal, path=[], pos_center_start=np.zeros(2), vel_center_start=np.zeros(2), u_min_max=np.array([-np.inf, np.inf])):
         self.width = width                  # in m
         self.height = height                # in m
         self.radius = np.sqrt((self.width / 2)**2 + (self.height / 2)**2)    # in m (radius of circle that the robot uses)
@@ -16,7 +16,6 @@ class RobotBase:
         self.pos_goal = pos_goal            # goal position in m shape (2,)
         self.path = path                    # list of the path coordinates
         self.path_idx = 0                   # index which location is the current goal location
-        self.safety_margin = safety_margin  # in m
         self.u_min_max = u_min_max
 
     @property
@@ -58,6 +57,29 @@ class RobotBase:
         else:
             return self.path[self.path_idx]
     
+    def velocity_pd_controller(self, Kp=0.5, target_speed=4.0, slow_radius=3.0):
+        # call the update inter_pos_goal method to make sure that the path_idx is correct
+        self.inter_pos_goal()
+
+        if len(self.path) == 0:
+            return np.zeros(2)
+
+        lookahead_idx = min(self.path_idx + 1, len(self.path) - 1)
+        direction = self.path[lookahead_idx] - self.position
+        norm = np.linalg.norm(direction)
+
+        distance_to_goal = np.linalg.norm(self.pos_goal - self.position)
+        speed = target_speed * np.clip(distance_to_goal / slow_radius, 0.0, 1.0)
+
+        if norm < 1e-6:
+            v_des = np.zeros_like(self.velocity)
+        else:
+            v_des = direction / norm * speed
+
+        velocity_error = v_des - self.velocity
+        u = Kp * velocity_error 
+        return np.clip(u, self.u_min_max[0], self.u_min_max[1])
+    
     def add_path(self, path):
         # method to add the path
         self.path = path
@@ -82,7 +104,7 @@ class RobotBase:
         drawing = pygame.Rect(self.pos_px(), (width_px, height_px))
         return drawing
 
-    def check_goal_reached(self, tolerance=0.01, pos_inter=np.array([])):
+    def check_goal_reached(self, tolerance=0.1, pos_inter=np.array([])):
         # function to check if the goal is reached
         if pos_inter.shape[0] < 1:
             distance = np.linalg.norm(np.array(self.position) - np.array(self.pos_goal))

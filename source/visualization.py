@@ -2,49 +2,99 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
 from loguru import logger
+import os
 
 class VisualizeData:
     def __init__(self):
-        pass
+        self.u_cbf = []
+        self.u_nominal = []
+        self.h_true = []
+        self.h_estimated = []
+        self.safety_margin = []
+        self.robot_pos = []
+        self.robot_pos_estimated = []
+        self.robot_vel = []
+        self.planner_costmap = []
+        self.cbf_costmap = []
+        self.perception_magnitude_costmap = []
+        self.noise_costmap = []
+        self.sensor_positions = []
+        self.path = []
+        self.timestep = []
+        self.converted_to_numpy = False
 
-class VisualizeCBF:
+    def to_numpy(self):
+        if not self.converted_to_numpy:
+            for attr, value in self.__dict__.items():
+                if isinstance(value, list):
+                    setattr(self, attr, np.array(value))
+            
+            self.converted_to_numpy = True
+    
+    def save_data(self, dir):
+        # function to save all the data to npy files
+        # check if converted to numpy
+        if not self.converted_to_numpy:
+            self.to_numpy()
+        
+        # Create directory if it doesn't exist
+        os.makedirs(dir, exist_ok=True)
+        
+        # Save each numpy array to a .npy file
+        for attr, value in self.__dict__.items():
+            if isinstance(value, np.ndarray):
+                file_path = f"{dir}/{attr}.npy"
+                np.save(file_path, value)
+        
+        logger.success(f"Visualization data saved: {dir}")
+
+
+class VisualizeSimulation:
     def __init__(self, pos_goal, obstacles=[], show_plot=True):
-        self._empty_dataset = {
-            'control_input': {
-                'u_cbf': [],
-                'u_nominal': []
-            },
-            'h':[],
-            'robot_pos': [],
-            'robot_pos_estimated': [],
-            'path': [],
-            'costmap': [], 
-            'distance_map': [],
-            'cbf_costmap': []
-        }
-        self.data = self._empty_dataset
+        self.data = VisualizeData()
         self.pos_goal = pos_goal
         self.obstacles = obstacles
         self.show_plot = show_plot
     
     def clear(self):
         # clear the data dictionary
-        self.data = self._empty_dataset
+        self.data = VisualizeData()
+    
+    def plot_state(self, axes):
+        # this function converts the axes to plots for the state
+        x = self.data.timestep   
+        robot_vel = self.data.robot_vel
+        robot_pos = self.data.robot_pos
+        robot_pos_estimated = self.data.robot_pos_estimated
+        dim_pos = robot_pos.shape[1]
 
-    def plot_control_input(self, ax=None):
-        # Convert lists to array
-        u_nominal = np.array(self.data['control_input']['u_nominal'])
-        u_cbf = np.array(self.data['control_input']['u_cbf'])
-        x = np.arange(u_nominal.shape[0])
+        for i in range(dim_pos):
+            axes[i].plot(x, robot_pos_estimated[:, i], label='Estimated')
+            axes[i].plot(x, robot_pos[:, i], label='True')
+            axes[i].set_title(f'Position over time (axes={i})')
+            axes[i].set_xlabel('Time step [-]')
+            axes[i].set_ylabel('Position [m]')
+            axes[i].legend()
+            axes[i].grid(True)
+
+        for i in range(robot_vel.shape[1]):
+            idx = i + dim_pos
+            axes[idx].plot(x, robot_vel[:, i])
+            axes[idx].set_title(f'Velocity over time (axes={i})')
+            axes[idx].set_xlabel('Time step [-]')
+            axes[idx].set_ylabel('Velocity [m/s]')
+            axes[idx].grid(True)
+        
+        return axes
+
+    def plot_control_input(self, axes):
+        # this function converts a list of axes to a list of figures with the control inputs over time
+        u_nominal = self.data.u_nominal
+        u_cbf = self.data.u_cbf
+        x = self.data.timestep
         dim_controller = u_nominal.shape[1]
 
-        # Create axis if not provided
-        if ax is None:
-            fig, ax = plt.subplots()
-        else:
-            axes = ax
-
-        # Plot the data
+        # Plot the data for controller
         for i in range(dim_controller):
             axes[i].plot(x, u_cbf[:, i], label=f'u cbf {i}')
             axes[i].plot(x, u_nominal[:, i], label=f'u nominal {i}')
@@ -58,22 +108,30 @@ class VisualizeCBF:
 
         return axes  # Return the modified axis
 
-    def plot_cbf(self, ax=None):
-        # Convert list to array
-        h = np.array(self.data['h'])
-        x = np.arange(h.shape[0])
+    def plot_safety_margin(self, ax):
+        # function to plot the safety margin over time
+        x = self.data.timestep
+        safety_margins = self.data.safety_margin
+        labels = [f"CBF {i}" for i in range(safety_margins.shape[1])]
+        ax.plot(x, safety_margins, label=labels)
+        ax.set_title(f'Safety margin over time')
+        ax.set_xlabel('Time step [-]')
+        ax.set_ylabel('Safety margin')
+        ax.legend()
+        ax.grid(True)
+        return ax
 
-        num_cbfs = h.shape[1]  # Number of CBFs
-
-        # Create multiple axes in a row if not provided
-        if ax is None:
-            fig, axes = plt.subplots(1, num_cbfs, figsize=(5 * num_cbfs, 4))
-        else:
-            axes = ax
+    def plot_cbf(self, axes):
+        # converts a list of axes to figures with the value of the cbf over time
+        h_true = self.data.h_true
+        h_estimated = self.data.h_estimated
+        x = self.data.timestep
+        num_cbfs = h_true.shape[1]  # Number of CBFs
 
         # Plot each CBF separately
         for i in range(num_cbfs):
-            axes[i].plot(x, h[:, i], label=f'cbf {i}')
+            axes[i].plot(x, h_estimated[:, i], label=f'estimated cbf {i}')
+            axes[i].plot(x, h_true[:, i], label=f'true cbf {i}')
             axes[i].set_title(f'CBF {i} over time')
             axes[i].set_xlabel('Time step [-]')
             axes[i].set_ylabel('h')
@@ -86,10 +144,10 @@ class VisualizeCBF:
         # get all the data
         costmap = planner.costmap
         path = planner.path_world
-        distance_map = planner.distance_map
+        distance_map = self.data.planner_costmap
 
         obstacle_mask = np.isinf(costmap)
-        robot_pos = np.array(self.data['robot_pos'])
+        robot_pos = self.data.robot_pos
 
         # Display map (avoid inf for colormap)
         if np.any(obstacle_mask):
@@ -103,8 +161,8 @@ class VisualizeCBF:
 
         # Show distance/cost map
         extent = [
-            *planner.grid_to_world((0, 0)),                     # lower left (x_min, y_min)
-            *planner.grid_to_world((planner.rows, planner.cols))      # upper right (x_max, y_max)
+            *planner.grid_to_world((0, 0)),                             # lower left (x_min, y_min)
+            *planner.grid_to_world((planner.rows, planner.cols))        # upper right (x_max, y_max)
         ]
         extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow: [x_min, x_max, y_min, y_max]
         img = ax.imshow(distance_map, cmap='viridis', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
@@ -139,12 +197,12 @@ class VisualizeCBF:
         # the planner is the planner object
         # get all the data
         if cbf_costmap is None:
-            cbf_costmap = np.array(self.data['cbf_costmap'])
+            cbf_costmap = self.data.cbf_costmap
         else:
             cbf_costmap = np.array(cbf_costmap.costmap)
         
         path = np.array(planner.path_world)
-        robot_pos = np.array(self.data['robot_pos'])
+        robot_pos = self.data.robot_pos
 
         # Basic min/max values for colormap
         vmax = np.max(cbf_costmap)
@@ -190,12 +248,68 @@ class VisualizeCBF:
 
         return ax
 
-    def plot_robot_trajectory(self, ax=None, path=None):
+    def plot_perception_costmap(self, ax, planner, costmap_type='perception'):
+        # input of cbf_costmap is the array of the cbf_costmap
+        # the planner is the planner object
+        if costmap_type == 'perception':
+            costmap = self.data.perception_magnitude_costmap
+            name = 'Perception magnitude'
+        elif costmap_type == 'noise':
+            costmap = self.data.noise_costmap
+            name = 'Noise'
+        else:
+            logger.error(f"Wrong costmap type selected: {costmap_type}. Choose from [perception, noise]")
+            return ax
+        
+        path = np.array(planner.path_world)
+        robot_pos = self.data.robot_pos
+        sensor_positions = self.data.sensor_positions
+
+        # Basic min/max values for colormap
+        vmax = np.max(costmap)
+        vmin = np.min(costmap)
+
+        # Define extent in world coordinates
+        extent = [
+            *planner.grid_to_world((0, 0)),
+            *planner.grid_to_world((planner.rows, planner.cols))
+        ]
+        extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow
+
+        # Plot costmap
+        img = ax.imshow(costmap, cmap='plasma', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
+
+        # plot path and real trajectory
+        ax.plot(path[:, 0], path[:, 1], color='cyan', label='Planned traj')
+        ax.plot(robot_pos[:, 0], robot_pos[:, 1], color='lime', label='Robot traj')
+
+        # plot goal and start
+        ax.plot(robot_pos[0, 0], robot_pos[0, 1], 'ro', label='Start')
+        ax.plot(self.pos_goal[0], self.pos_goal[1], 'go', label='Goal')
+
+        # plot sensors 
+        ax.scatter(sensor_positions[:, 0], sensor_positions[:, 1], c='k', label='Sensor pos')
+
+        ax.set_title(f"{name} Costmap")
+        ax.set_xlabel("x")
+        ax.set_ylabel("y")
+        ax.grid(True)
+        ax.axis('equal')
+        ax.legend()
+
+        # Colorbar
+        fig = ax.get_figure()
+        cbar = fig.colorbar(img, ax=ax)
+        cbar.set_label(name, rotation=270, labelpad=15)
+
+        return ax
+
+    def plot_robot_trajectory(self, ax, path=None):
         # Convert list to array
-        robot_pos = np.array(self.data['robot_pos'])
-        robot_pos_estimated = np.array(self.data['robot_pos_estimated'])
+        robot_pos = self.data.robot_pos
+        robot_pos_estimated = self.data.robot_pos_estimated
         if path is None:
-            path = np.array(self.data['path'])
+            path = self.data.path
         else:
             path = np.array(path)
 
@@ -221,22 +335,19 @@ class VisualizeCBF:
 
         return ax 
     
-    def create_plot(self, plot_types, planner, filename=None):
+    def create_full_plot(self, planner, filename=None):
+        # convert lists to array
+        self.data.to_numpy()
+
         # function save figure if there is a filename
-        num_control = 'control_input' in plot_types
-        num_coloms_control = len(self.data['control_input']['u_nominal'][0]) if 'control_input' in plot_types and len(self.data['control_input']['u_nominal']) > 0 else 0
-        num_cbfs = 'h' in plot_types
-        num_colom_cbfs = len(self.data['h'][0]) if 'h' in plot_types and len(self.data['h']) > 0 else 0
-        num_robot = 'robot_pos' in plot_types
-        num_trajectory = 3 if 'robot_pos' in plot_types else 0
+        num_colom_state = self.data.robot_pos.shape[1] + self.data.robot_vel.shape[1]
+        num_coloms_control = self.data.u_nominal.shape[1] + 1   # +1 for the safety margin
+        num_colom_cbfs = self.data.h_true.shape[1]
+        num_costmaps = 5
 
         # Determine number of rows and columns
-        num_rows = num_control + num_robot + num_cbfs 
-        num_cols = max([num_colom_cbfs, num_coloms_control, num_trajectory])  
-
-        # if there are no rows just return
-        if num_rows < 1:
-            return
+        num_rows = 4
+        num_cols = max([num_colom_state, num_colom_cbfs, num_coloms_control, num_costmaps])  
 
         fig, axes = plt.subplots(num_rows, num_cols, figsize=(5 * num_cols, 4 * (num_rows)))
 
@@ -248,47 +359,50 @@ class VisualizeCBF:
         elif num_cols == 1:
             axes = [[ax] for ax in axes]
 
-        ax_idx = 0  # Track which row we're plotting on
+        # Row 0: state over time
+        self.plot_state(axes=axes[0])
 
-        # Plot control input (single subplot spanning all columns)
-        if num_control:
-            self.plot_control_input(ax=axes[ax_idx])
+        # remove unused subplots
+        if num_colom_state < num_cols:
+            for i in range(num_colom_state, num_cols):
+                fig.delaxes(axes[0][i]) 
 
-            # remove unused subplots
-            if num_coloms_control < num_cols:
-                for i in range(num_coloms_control, num_cols):
-                    fig.delaxes(axes[ax_idx][i])
-            
-            # Move to next row
-            ax_idx += 1  
+        # Row 1: Plot control input (single subplot spanning all columns)
+        self.plot_control_input(axes=axes[1])
+        self.plot_safety_margin(ax=axes[1][num_coloms_control-1])
 
-        # Plot multiple CBFs in separate columns
-        if num_cbfs > 0:
-            self.plot_cbf(ax=axes[ax_idx])
+        # remove unused subplots
+        if num_coloms_control < num_cols:
+            for i in range(num_coloms_control, num_cols):
+                fig.delaxes(axes[1][i]) 
 
-            # remove unused subplots
-            if num_colom_cbfs < num_cols:
-                for i in range(num_colom_cbfs, num_cols):
-                    fig.delaxes(axes[ax_idx][i])
+        # Row 2: Plot multiple CBFs in separate columns
+        self.plot_cbf(axes=axes[2])
 
-            # move to next row
-            ax_idx += 1
+        # remove unused subplots
+        if num_colom_cbfs < num_cols:
+            for i in range(num_colom_cbfs, num_cols):
+                fig.delaxes(axes[2][i])
 
-        # Plot robot trajectory (last row, spanning all columns)
-        if num_robot:
+        # Row 3: plot costmaps
+        self.plot_robot_trajectory(ax=axes[3][0])
 
-            self.plot_robot_trajectory(ax=axes[ax_idx][0])
+        # costmap for planner
+        self.plot_distance_costmap(ax=axes[3][1], planner=planner)
 
-            # costmap for planner
-            self.plot_distance_costmap(ax=axes[ax_idx][1], planner=planner)
+        # costmap for cbf
+        self.plot_cbf_costmap(ax=axes[3][2], planner=planner)
 
-            # costmap for cbf
-            self.plot_cbf_costmap(ax=axes[ax_idx][2], planner=planner)
-            
-            # remove unused subplots
-            if num_cols > 3:
-                for i in range(3, num_cols):
-                    fig.delaxes(axes[ax_idx][i])
+        # costmap for perception magnitude
+        self.plot_perception_costmap(ax=axes[3][3], planner=planner, costmap_type='perception')
+        
+        # costmap for noise
+        self.plot_perception_costmap(ax=axes[3][4], planner=planner, costmap_type='noise')
+
+        # remove unused subplots
+        if num_cols > 5:
+            for i in range(5, num_cols):
+                fig.delaxes(axes[3][i])
 
         plt.tight_layout()
 
