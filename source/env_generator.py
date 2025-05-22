@@ -15,7 +15,6 @@ from obstacles import RectangleObstacle, CircleObstacle
 import numpy as np
 import os
 import json
-from uncertainty_costmap import UncertaintyCostmap
 from perception import Perception, Sensor
 
 
@@ -28,9 +27,9 @@ class EnvGeneratorConfig:
                  max_duration_of_simulation: float,
                  min_goal_distance: float,
                  work_dir: str, 
-                 state_std: np.ndarray | float,
                  use_safety_margin: bool,
                  max_sensor_noise: float,
+                 cbf_state_uncertainty_mode: str,
                  fps=60,
                  robot_size=(1, 1),
                  min_number_of_obstacles=1,
@@ -40,25 +39,34 @@ class EnvGeneratorConfig:
                  cbf_reduction='min',
                  cbf_infused_a_star=False,
                  planner_comparison=False):
+        # general parameters
         self.number_of_simulations = number_of_simulations
-        self.min_number_of_obstacles = min_number_of_obstacles
-        self.max_number_of_obstacles = max_number_of_obstacles
-        self.environment_size = environment_size                        # in m
-        self.grid_size = grid_size                                      # in m
-        self.max_obstacle_size = max_obstacle_size                      # in m
         self.max_duration_of_simulation = max_duration_of_simulation    # in seconds
         self.min_goal_distance = min_goal_distance      # in m
         self.work_dir = work_dir
-        self.state_std = state_std          # in m
-        self.robot_size = robot_size        # in m
         self.fps = fps
+        self.planner_comparison = planner_comparison    # bool
+
+        # environment parameters (robot and obstacles)
+        self.environment_size = environment_size                        # in m
+        self.robot_size = robot_size        # in m
+        self.min_number_of_obstacles = min_number_of_obstacles
+        self.max_number_of_obstacles = max_number_of_obstacles
+        self.max_obstacle_size = max_obstacle_size                      # in m
+        
+        # costmap parameters
+        self.grid_size = grid_size                                      # in m
+        
+        # cbf parameters
+        self.cbf_state_uncertainty_mode = cbf_state_uncertainty_mode    # choose between robust or probabilistic
         self.use_safety_margin = use_safety_margin  # bool whether to use safety margin
+        self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
+        self.cbf_infused_a_star = cbf_infused_a_star    # bool
+        
+        # perception parameters
         self.min_number_of_sensors = min_number_of_sensors
         self.max_number_of_sensors = max_number_of_sensors  
         self.max_sensor_noise = max_sensor_noise    # in m
-        self.cbf_reduction = cbf_reduction  # the reduction to get the cbf in one grid, options: ['min', 'mean', 'sum']
-        self.cbf_infused_a_star = cbf_infused_a_star    # bool
-        self.planner_comparison = planner_comparison    # bool
 
     def log_information(self):
         logger.info(f"Workdir: {self.work_dir}")
@@ -69,10 +77,10 @@ class EnvGeneratorConfig:
         logger.info(f"Minimum distance to the goal: {self.min_goal_distance} m")
         logger.info(f"Robot size: {self.robot_size}")
         logger.info(f"Use safety margin: {self.use_safety_margin}")
-        logger.info(f"State estimation std: {self.state_std}")
         logger.info(f"CBF reduction mode: {self.cbf_reduction}")
         logger.info(f"CBF infused A*: {self.cbf_infused_a_star}")
-        logger.info(f"Max standard deviation: {self.max_sensor_noise}")
+        logger.info(f"CBF state uncertainty mode: {self.cbf_state_uncertainty_mode}")
+        logger.info(f"Max  noise (standard deviation): {self.max_sensor_noise}")
         logger.info(f"Min number of sensors: {self.min_number_of_sensors}")
         logger.info(f"Max number of sensors: {self.max_number_of_sensors}")
         logger.info(f"Min number of obstascles: {self.min_number_of_obstacles}")
@@ -83,7 +91,6 @@ class EnvGeneratorConfig:
     def save_to_file(self, path: str):
         # Convert all class attributes to a serializable dict
         config_dict = self.__dict__.copy()
-        config_dict['state_std'] = config_dict['state_std'].tolist() if isinstance(config_dict['state_std'], np.ndarray) else config_dict['state_std']
         with open(path, 'w') as f:
             json.dump(config_dict, f, indent=4)
         logger.success(f"Configuration saved to {path}")
@@ -92,7 +99,6 @@ class EnvGeneratorConfig:
     def from_file(cls, path: str):
         with open(path, 'r') as f:
             config_dict = json.load(f)
-        config_dict['state_std'] = np.array(config_dict['state_std']) if isinstance(config_dict['state_std'], list) else config_dict['state_std']
         logger.success(f"Configuration loade from {path}")
         return cls(**config_dict)
 
@@ -219,6 +225,8 @@ class EnvGenerator:
                 sensor_position=np.array(sensor['center']),
                 max_distance=sensor['max_distance']
             ))
+        
+        logger.success(f"Environment data loaded: {json_path}")
 
         return start_pos, start_vel, goal_pos, obstacles, sensors
     
@@ -359,10 +367,11 @@ class EnvGenerator:
             cbf_reduction=self.config.cbf_reduction
         )
 
-        # create perception module 
+        # create perception module (costmap included)
         num_sensors = random.randint(self.config.min_number_of_sensors, self.config.max_number_of_sensors)
         perception = Perception(
             costmap_size=self.config.environment_size,
+            grid_size=self.config.grid_size,
             cbf=cbf,
             num_sensors=num_sensors,
             min_values_state=np.array([-10, -10, -1.5, -1.5]),
@@ -370,13 +379,6 @@ class EnvGenerator:
             max_sensor_noise=self.config.max_sensor_noise,
             num_samples_per_dim=4,
             sensors=sensors
-        )
-
-        # create uncertainty costmap
-        uncertainty_costmap = UncertaintyCostmap(
-            costmap_size=self.config.environment_size,
-            grid_size=self.config.grid_size,
-            perception=perception
         )
 
         # generate the planner
@@ -432,7 +434,7 @@ class EnvGenerator:
             )
             visualizers[key] = visualizer
         
-        return env, visualizers, config, cbf, planners, cbf_costmap, perception, uncertainty_costmap
+        return env, visualizers, config, cbf, planners, cbf_costmap, perception
     
     def _run_planner(self, 
                      env: RobotBaseEnv, 
@@ -442,7 +444,6 @@ class EnvGenerator:
                      planner: AStarPlanner | CBFInfusedAStar, 
                      cbf_costmap: CBFCostmap, 
                      perception: Perception,
-                     uncertainty_costmap: UncertaintyCostmap,
                      env_folder: str):
         max_timesteps = env.fps * self.config.max_duration_of_simulation
         timestep = 0
@@ -451,13 +452,14 @@ class EnvGenerator:
         visualizer.data.path = env.robot_base.path
         visualizer.data.planner_costmap = planner.compute_distance_map(start=env.robot_base.position)
         visualizer.data.cbf_costmap = cbf_costmap.costmap
-        visualizer.data.perception_magnitude_costmap = uncertainty_costmap.perception_magnitude_costmap
+        visualizer.data.perception_magnitude_costmap = perception.perception_magnitude_costmap
+        visualizer.data.noise_costmap = perception.noise_costmap
         visualizer.data.sensor_positions = perception.sensor_positions
 
         # run env
         while env.running and timestep < max_timesteps:
             current_state = env.get_state()
-            estimated_state = env.get_estimated_state(std=self.config.state_std)
+            estimated_state = perception.get_estimated_state(current_state)
             
             # calculate nominal control
             # nominal_control = pd_controller(pos_des, estimated_state[:2], estimated_state[2:])
@@ -468,10 +470,11 @@ class EnvGenerator:
             
             # calculate the safety margin
             if self.config.use_safety_margin:
+                noise = perception.get_perception_noise(x_true=current_state[:2])
                 safety_margin = perception.calculate_safety_margin(
-                    epsilon=0.4,        # in the paper they use 0.4 (later this will be taken from the costmap)
+                    noise=noise,      
                     u_nominal=nominal_control,
-                    mode='robust'
+                    mode=self.config.cbf_state_uncertainty_mode
                 )
             else:
                 safety_margin = np.zeros(config.num_obstacles)
@@ -506,12 +509,7 @@ class EnvGenerator:
             timestep += 1
         
         # check the maximum tolerance as an effect of the state estimation uncertainty
-        if isinstance(self.config.state_std, float):
-            max_tolerance_state_uncertainty = self.config.state_std
-        elif isinstance(self.config.state_std, np.ndarray):
-            max_tolerance_state_uncertainty = np.amax(self.config.state_std)
-        
-        if env.robot_base.check_goal_reached(tolerance=self.config.grid_size + max_tolerance_state_uncertainty + 0.01):
+        if env.robot_base.check_goal_reached(tolerance=self.config.grid_size + self.config.max_sensor_noise + 0.01):
             logger.success(f"Goal reached in {timestep} timesteps.")
             goal_reached = True
         else:
@@ -565,7 +563,8 @@ class EnvGenerator:
 
     @logger.catch
     def _run_env(self, env_folder, loaded_env_dir=None):
-        env, visualizers, config, cbf, planners, cbf_costmap, perception, uncertainty_costmap = self._generate_env_elements(loaded_env_dir)
+        env, visualizers, config, cbf, planners, cbf_costmap, perception = self._generate_env_elements(loaded_env_dir)
+        # perception.add_sensor(Sensor(sensor_position=np.array([6, -1])))
         success = {}
 
         # save the environment parameters
@@ -603,7 +602,6 @@ class EnvGenerator:
                 planner=planner,
                 cbf_costmap=cbf_costmap,
                 perception=perception,
-                uncertainty_costmap=uncertainty_costmap,
                 env_folder=env_folder
             )
             success[planner_name] = goal_reached
@@ -688,7 +686,6 @@ def main():
     #     max_duration_of_simulation=20,
     #     min_goal_distance=15,
     #     robot_size=(1, 1),
-    #     state_std=np.array([0.1, 0.1, 0.0, 0.0]),
     #     use_safety_margin=True,
     #     cbf_reduction='min',
     #     work_dir=directory,

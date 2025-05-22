@@ -17,6 +17,7 @@ class VisualizeData:
         self.planner_costmap = []
         self.cbf_costmap = []
         self.perception_magnitude_costmap = []
+        self.noise_costmap = []
         self.sensor_positions = []
         self.path = []
         self.timestep = []
@@ -247,22 +248,26 @@ class VisualizeSimulation:
 
         return ax
 
-    def plot_perception_magnitude_costmap(self, ax, planner, perception_magnitude=None):
+    def plot_perception_costmap(self, ax, planner, costmap_type='perception'):
         # input of cbf_costmap is the array of the cbf_costmap
         # the planner is the planner object
-        # get all the data
-        if perception_magnitude is None:
-            perception_magnitude = self.data.perception_magnitude_costmap
+        if costmap_type == 'perception':
+            costmap = self.data.perception_magnitude_costmap
+            name = 'Perception magnitude'
+        elif costmap_type == 'noise':
+            costmap = self.data.noise_costmap
+            name = 'Noise'
         else:
-            perception_magnitude = np.array(perception_magnitude.costmap)
+            logger.error(f"Wrong costmap type selected: {costmap_type}. Choose from [perception, noise]")
+            return ax
         
         path = np.array(planner.path_world)
         robot_pos = self.data.robot_pos
         sensor_positions = self.data.sensor_positions
 
         # Basic min/max values for colormap
-        vmax = np.max(perception_magnitude)
-        vmin = np.min(perception_magnitude)
+        vmax = np.max(costmap)
+        vmin = np.min(costmap)
 
         # Define extent in world coordinates
         extent = [
@@ -272,7 +277,7 @@ class VisualizeSimulation:
         extent = [extent[0], extent[2], extent[1], extent[3]]  # reorder for imshow
 
         # Plot costmap
-        img = ax.imshow(perception_magnitude, cmap='plasma', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
+        img = ax.imshow(costmap, cmap='plasma', origin='lower', vmin=vmin, vmax=vmax, extent=extent)
 
         # plot path and real trajectory
         ax.plot(path[:, 0], path[:, 1], color='cyan', label='Planned traj')
@@ -285,7 +290,7 @@ class VisualizeSimulation:
         # plot sensors 
         ax.scatter(sensor_positions[:, 0], sensor_positions[:, 1], c='k', label='Sensor pos')
 
-        ax.set_title("Perception magnitude Costmap")
+        ax.set_title(f"{name} Costmap")
         ax.set_xlabel("x")
         ax.set_ylabel("y")
         ax.grid(True)
@@ -295,7 +300,7 @@ class VisualizeSimulation:
         # Colorbar
         fig = ax.get_figure()
         cbar = fig.colorbar(img, ax=ax)
-        cbar.set_label("Perception magnitude", rotation=270, labelpad=15)
+        cbar.set_label(name, rotation=270, labelpad=15)
 
         return ax
 
@@ -338,7 +343,7 @@ class VisualizeSimulation:
         num_colom_state = self.data.robot_pos.shape[1] + self.data.robot_vel.shape[1]
         num_coloms_control = self.data.u_nominal.shape[1] + 1   # +1 for the safety margin
         num_colom_cbfs = self.data.h_true.shape[1]
-        num_costmaps = 4
+        num_costmaps = 5
 
         # Determine number of rows and columns
         num_rows = 4
@@ -388,12 +393,15 @@ class VisualizeSimulation:
         # costmap for cbf
         self.plot_cbf_costmap(ax=axes[3][2], planner=planner)
 
-        # costmap for uncertainty
-        self.plot_perception_magnitude_costmap(ax=axes[3][3], planner=planner)
+        # costmap for perception magnitude
+        self.plot_perception_costmap(ax=axes[3][3], planner=planner, costmap_type='perception')
         
+        # costmap for noise
+        self.plot_perception_costmap(ax=axes[3][4], planner=planner, costmap_type='noise')
+
         # remove unused subplots
-        if num_cols > 4:
-            for i in range(4, num_cols):
+        if num_cols > 5:
+            for i in range(5, num_cols):
                 fig.delaxes(axes[3][i])
 
         plt.tight_layout()

@@ -63,32 +63,6 @@ class RobotBaseEnv(BaseEnv):
     def get_state(self) -> np.array:
         return np.concatenate((self.robot_base.position, self.robot_base.velocity))
     
-    def get_estimated_state(self, std: np.ndarray | float):
-        # function to do the state estimation 
-        # it adds the given noise to the true state. if the shapes are not the same, the true state is returned
-        true_state = self.get_state()
-        
-        # add the noise to the true state
-        if isinstance(std, float):
-            noise = np.random.normal(loc=0.0, scale=std, size=true_state.shape)
-            estimated_state = true_state + noise
-        elif isinstance(std, np.ndarray):
-            # check the shapes
-            if true_state.shape != std.shape:
-                logger.error(f"Shapes of state and stds are not the same: {true_state.shape} != {std.shape}")
-                logger.warning("State estimation not possible. Return true state.")
-                estimated_state = true_state
-            else:
-                _std = np.zeros_like(std)
-                for i in range(std.shape[0]):
-                    _std[i] = np.random.normal(loc=0.0, scale=std[i])
-                estimated_state = true_state + _std
-        else:
-            logger.error(f"Unsupported type: {type(std)}")
-        
-        # return the estimated state
-        return estimated_state
-    
     def get_desired_state(self):
         return self.robot_base.inter_pos_goal()
     
