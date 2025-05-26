@@ -1,7 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
 import pygame
-from robot_base import RobotBase
 from env_config import EnvConfig
 import jax.numpy as jnp
 import matplotlib.patches as patches
@@ -47,18 +46,18 @@ class RectangleObstacle(Obstacle):
         self,
         width,
         height,
+        robot_radius,
         pos_center,
         env_config: EnvConfig,
-        robot: RobotBase,
         id: int,
     ):
         self.width = width  # in m
         self.height = height  # in m
+        self.robot_radius = robot_radius  # in m (space needed by the robot)
         self.pos_center = pos_center  # in m shape (2,)
         self.px_per_meter = env_config.pixels_per_meter  # in m
         self.screen_width = env_config.screen_width  # in px
         self.screen_height = env_config.screen_height  # in px
-        self.robot = robot  # to which robot this obstacle is linked
         self.id = id
 
     @property
@@ -162,27 +161,33 @@ class RectangleObstacle(Obstacle):
 
         h_values = (
             jnp.sum(normal_vectors * vectors, axis=1)
-            - self.robot.radius
+            - self.robot_radius
             - safety_margin
         )
         return h_values  # shape (N,)
 
-    def check_collision(self, robot: RobotBase, safety_margin=0.0):
+    def check_collision(
+        self,
+        robot_position: np.ndarray,
+        robot_width: float,
+        robot_height: float,
+        safety_margin=0.0,
+    ):
         # function to check if the robot is in collision with this obstacle
         # get the centers of the robot and the obstacle
-        cx_robot, cy_robot = robot.position
+        cx_robot, cy_robot = robot_position
         cx_obstacle, cy_obstacle = self.pos_center
 
         # Check x-axis overlap
         x_overlap = (
             abs(cx_robot - cx_obstacle)
-            <= (robot.width / 2) + (self.width / 2) + safety_margin
+            <= (robot_width / 2) + (self.width / 2) + safety_margin
         )
 
         # Check y-axis overlap
         y_overlap = (
             abs(cy_robot - cy_obstacle)
-            <= (robot.height / 2) + (self.height / 2) + safety_margin
+            <= (robot_height / 2) + (self.height / 2) + safety_margin
         )
 
         return x_overlap and y_overlap
@@ -199,21 +204,27 @@ class RectangleObstacle(Obstacle):
         )
         return jnp.stack([closest_x, closest_y], axis=1)  # (N, 2)
 
-    def check_goal_position(self, robot: RobotBase, extra_safety_margin=0.5):
+    def check_goal_position(
+        self,
+        goal_position: np.ndarray,
+        robot_width: float,
+        robot_height: float,
+        extra_safety_margin=0.5,
+    ):
         # check if the goal position is feasible
-        cx_robot, cy_robot = robot.pos_goal
+        cx_robot, cy_robot = goal_position
         cx_obstacle, cy_obstacle = self.pos_center
 
         # Check x-axis overlap
         x_overlap = (
             abs(cx_robot - cx_obstacle)
-            <= (robot.width / 2) + (self.width / 2) + extra_safety_margin
+            <= (robot_width / 2) + (self.width / 2) + extra_safety_margin
         )
 
         # Check y-axis overlap
         y_overlap = (
             abs(cy_robot - cy_obstacle)
-            <= (robot.height / 2) + (self.height / 2) + extra_safety_margin
+            <= (robot_height / 2) + (self.height / 2) + extra_safety_margin
         )
 
         return not (x_overlap and y_overlap)
@@ -222,12 +233,12 @@ class RectangleObstacle(Obstacle):
 class CircleObstacle(Obstacle):
     # object for circular obstacles
     def __init__(
-        self, radius, pos_center, env_config: EnvConfig, robot: RobotBase, id: int
+        self, radius, robot_radius, pos_center, env_config: EnvConfig, id: int
     ):
         self.radius = radius  # in m
+        self.robot_radius = robot_radius  # in m (space needed by the robot)
         self.pos_center = pos_center  # in m shape (2,)
         self.env_config = env_config
-        self.robot = robot
         self.id = id
 
     def add_obstacle_to_costmap(self, costmap, origin_offset, grid_size=1):
@@ -280,7 +291,7 @@ class CircleObstacle(Obstacle):
         delta = jnp.stack([px, py], axis=1) - self.pos_center  # (N, 2)
 
         dist = jnp.linalg.norm(delta, axis=1)
-        buffer = self.robot.radius + self.radius + safety_margin
+        buffer = self.robot_radius + self.radius + safety_margin
         h_values = dist - buffer
         return h_values  # shape (N,)
 
@@ -302,13 +313,25 @@ class CircleObstacle(Obstacle):
         )
         return circle
 
-    def check_collision(self, robot: RobotBase, safety_margin=0.0):
+    def check_collision(
+        self,
+        robot_position: np.ndarray,
+        robot_width: float,
+        robot_height: float,
+        safety_margin=0.0,
+    ):
         # checks whehter the robot collides with this object
-        distance = np.linalg.norm(np.array(robot.position) - np.array(self.pos_center))
-        return distance <= (robot.radius + self.radius + safety_margin)
+        distance = np.linalg.norm(robot_position - np.array(self.pos_center))
+        return distance <= (self.robot_radius + self.radius + safety_margin)
 
-    def check_goal_position(self, robot: RobotBase, extra_safety_margin=0.5):
+    def check_goal_position(
+        self,
+        goal_position: np.ndarray,
+        robot_width: float,
+        robot_height: float,
+        extra_safety_margin=0.5,
+    ):
         # check if the goal position is feasible
         # return true if it is feasible and false otherwise
-        distance = np.linalg.norm(np.array(robot.pos_goal) - np.array(self.pos_center))
-        return distance >= (robot.radius + self.radius + extra_safety_margin)
+        distance = np.linalg.norm(goal_position - np.array(self.pos_center))
+        return distance >= (self.robot_radius + self.radius + extra_safety_margin)

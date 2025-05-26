@@ -10,13 +10,13 @@ class CBFCostmap:
         self,
         costmap_size,
         grid_size,
-        cbf: RobotBaseCBFConfig | RobotBaseCLFCBFConfig,
+        cbf_config: RobotBaseCBFConfig | RobotBaseCLFCBFConfig,
         cbf_reduction="min",
     ):
         self.grid_size = grid_size
         self.costmap_size = costmap_size
         self.origin_offset = np.array(costmap_size) / (2 * self.grid_size)
-        self.cbf = cbf
+        self.cbf = cbf_config
         self.cbf_reduction = cbf_reduction
         self.costmap = self.create_costmap()
         logger.success("CBF costmap created")

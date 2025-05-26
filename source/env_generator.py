@@ -408,13 +408,13 @@ class EnvGenerator:
                 obstacle.robot = robot
 
         # create config and cbf
-        config = RobotBaseCBFConfig(obstacles, robot)
+        config = RobotBaseCBFConfig(obstacles)
         cbf = CBF.from_config(config)
 
         cbf_costmap = CBFCostmap(
             costmap_size=self.config.environment_size,
             grid_size=self.config.grid_size,
-            cbf=config,
+            cbf_config=config,
             cbf_reduction=self.config.cbf_reduction,
         )
 

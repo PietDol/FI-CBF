@@ -21,7 +21,8 @@ class VisualizeData:
         self.noise_costmap = []
         self.sensor_positions = []
         self.path = []
-        self.timestep = []
+        self.control_time = []
+        self.state_estimation_time = []
         self.converted_to_numpy = False
 
     def to_numpy(self):
@@ -51,7 +52,7 @@ class VisualizeData:
 
 
 class VisualizeSimulation:
-    def __init__(self, pos_goal, obstacles=[], show_plot=True):
+    def __init__(self, pos_goal, obstacles=[], show_plot=False):
         self.data = VisualizeData()
         self.pos_goal = pos_goal
         self.obstacles = obstacles
@@ -63,15 +64,16 @@ class VisualizeSimulation:
 
     def plot_state(self, axes):
         # this function converts the axes to plots for the state
-        x = self.data.timestep
+        t_control = self.data.control_time
+        t_estimate = self.data.state_estimation_time
         robot_vel = self.data.robot_vel
         robot_pos = self.data.robot_pos
         robot_pos_estimated = self.data.robot_pos_estimated
         dim_pos = robot_pos.shape[1]
 
         for i in range(dim_pos):
-            axes[i].plot(x, robot_pos_estimated[:, i], label="Estimated")
-            axes[i].plot(x, robot_pos[:, i], label="True")
+            axes[i].plot(t_estimate, robot_pos_estimated[:, i], label="Estimated")
+            axes[i].plot(t_control, robot_pos[:, i], label="True")
             axes[i].set_title(f"Position over time (axes={i})")
             axes[i].set_xlabel("Time step [-]")
             axes[i].set_ylabel("Position [m]")
@@ -80,7 +82,7 @@ class VisualizeSimulation:
 
         for i in range(robot_vel.shape[1]):
             idx = i + dim_pos
-            axes[idx].plot(x, robot_vel[:, i])
+            axes[idx].plot(t_control, robot_vel[:, i])
             axes[idx].set_title(f"Velocity over time (axes={i})")
             axes[idx].set_xlabel("Time step [-]")
             axes[idx].set_ylabel("Velocity [m/s]")
@@ -92,13 +94,13 @@ class VisualizeSimulation:
         # this function converts a list of axes to a list of figures with the control inputs over time
         u_nominal = self.data.u_nominal
         u_cbf = self.data.u_cbf
-        x = self.data.timestep
+        t_control = self.data.control_time
         dim_controller = u_nominal.shape[1]
 
         # Plot the data for controller
         for i in range(dim_controller):
-            axes[i].plot(x, u_cbf[:, i], label=f"u cbf {i}")
-            axes[i].plot(x, u_nominal[:, i], label=f"u nominal {i}")
+            axes[i].plot(t_control, u_cbf[:, i], label=f"u cbf {i}")
+            axes[i].plot(t_control, u_nominal[:, i], label=f"u nominal {i}")
 
             # Customize the plot
             axes[i].set_title("Control input over time")
@@ -111,10 +113,10 @@ class VisualizeSimulation:
 
     def plot_safety_margin(self, ax):
         # function to plot the safety margin over time
-        x = self.data.timestep
+        t_control = self.data.control_time
         safety_margins = self.data.safety_margin
         labels = [f"CBF {i}" for i in range(safety_margins.shape[1])]
-        ax.plot(x, safety_margins, label=labels)
+        ax.plot(t_control, safety_margins, label=labels)
         ax.set_title(f"Safety margin over time")
         ax.set_xlabel("Time step [-]")
         ax.set_ylabel("Safety margin")
@@ -126,13 +128,13 @@ class VisualizeSimulation:
         # converts a list of axes to figures with the value of the cbf over time
         h_true = self.data.h_true
         h_estimated = self.data.h_estimated
-        x = self.data.timestep
+        t_control = self.data.control_time
         num_cbfs = h_true.shape[1]  # Number of CBFs
 
         # Plot each CBF separately
         for i in range(num_cbfs):
-            axes[i].plot(x, h_estimated[:, i], label=f"estimated cbf {i}")
-            axes[i].plot(x, h_true[:, i], label=f"true cbf {i}")
+            axes[i].plot(t_control, h_estimated[:, i], label=f"estimated cbf {i}")
+            axes[i].plot(t_control, h_true[:, i], label=f"true cbf {i}")
             axes[i].set_title(f"CBF {i} over time")
             axes[i].set_xlabel("Time step [-]")
             axes[i].set_ylabel("h")
