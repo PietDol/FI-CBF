@@ -1,4 +1,4 @@
-from perception import Perception
+from perception import Perception, Sensor
 from a_star import AStarPlanner
 from cbf_infused_a_star import CBFInfusedAStar, CBFCostmap
 from robot_base_config import RobotBaseCBFConfig
@@ -82,8 +82,8 @@ class Robot:
         self._obstacles = obstacles
         self._width = width
         self._height = height
-        self._initial_state = initial_state
-        self._true_state = initial_state
+        self._initial_state = initial_state.copy()
+        self._true_state = initial_state.copy()
         self._estimated_state = self.perception.get_estimated_state(
             true_state=self._true_state
         )
@@ -166,7 +166,7 @@ class Robot:
         # current_pos = self._true_state[2:]
         inter_pos = self._path[self._path_idx]
         distance = np.linalg.norm(current_pos - inter_pos)
-        
+
         # logic to which position is returned
         if len(self._path) < 1:
             return self._goal_position
@@ -188,27 +188,6 @@ class Robot:
         error = target_pos - position
         damping = -self._Kd * velocity  # Damping term to reduce overshoot
         u = self._Kp * error + damping
-        return np.clip(u, self._u_min_max[0], self._u_min_max[1])
-    
-    def velocity_pd_controller(self, target_speed=4.0, slow_radius=3.0):
-        # call the update inter_pos_goal method to make sure that the path_idx is correct
-        target_pos = self.get_intermediate_position()
-        position = self.estimated_state[:2]
-        velocity = self.estimated_state[2:]
-
-        direction = target_pos - position
-        norm = np.linalg.norm(direction)
-
-        distance_to_goal = np.linalg.norm(self._goal_position - position)
-        speed = target_speed * np.clip(distance_to_goal / slow_radius, 0.0, 1.0)
-
-        if norm < 1e-6:
-            v_des = np.zeros_like(velocity)
-        else:
-            v_des = direction / norm * speed
-
-        velocity_error = v_des - velocity
-        u = self._Kp * velocity_error
         return np.clip(u, self._u_min_max[0], self._u_min_max[1])
 
     def check_goal_reached(self):
@@ -250,7 +229,6 @@ class Robot:
         # get control input and apply the safety filter
         target_pos = self.get_intermediate_position()
         u_nominal = self.pd_controller(target_pos)
-        # u_nominal = self.velocity_pd_controller()
         noise = self.perception.get_perception_noise(self._true_state[2:])
         safety_margin = self.perception.calculate_safety_margin(
             noise=noise, u_nominal=u_nominal, mode=self._cbf_state_uncertainty_mode
@@ -268,8 +246,8 @@ class Robot:
             self.cbf_config.h_1(self._estimated_state, safety_margin)
         )
         self.visualizer.data.h_estimated.append(np.array(h_estimated))
-        self.visualizer.data.robot_pos.append(self._true_state[:2])
-        self.visualizer.data.robot_vel.append(self._true_state[2:])
+        # self.visualizer.data.robot_pos.append(self._true_state[:2])
+        # self.visualizer.data.robot_vel.append(self._true_state[2:])
         self.visualizer.data.u_cbf.append(u_cbf)
         self.visualizer.data.u_nominal.append(u_nominal)
         self.visualizer.data.safety_margin.append(safety_margin)
@@ -287,6 +265,8 @@ class Robot:
 
         # update the visualizer
         self.visualizer.data.robot_pos_estimated.append(self._estimated_state[:2])
+        self.visualizer.data.robot_pos.append(self._true_state[:2].copy())
+        self.visualizer.data.robot_vel.append(self._true_state[2:].copy())
 
     def run_simulation(self, sim_time: float, env_folder: str):
         if self.path is None:
@@ -295,6 +275,8 @@ class Robot:
         t_estimation = 0.0
         t = 0.0
         dt = min(self._control_dt, self._state_esimation_dt)
+
+        self.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
 
         # apply the loop
         # in general: if both are in the same loop -> first estimation then apply control
@@ -326,10 +308,11 @@ class Robot:
 
             # update the time
             t += dt
-        
+
         # save data
         # last information to visualizer
         self.visualizer.data.sensor_positions = self.perception.sensor_positions
+        self.get_costmaps()
         self.visualizer.data.to_numpy()
         self.visualizer.data.control_time = (
             np.arange(self.visualizer.data.u_nominal.shape[0]) * self._control_dt

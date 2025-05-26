@@ -73,7 +73,7 @@ class VisualizeSimulation:
 
         for i in range(dim_pos):
             axes[i].plot(t_estimate, robot_pos_estimated[:, i], label="Estimated")
-            axes[i].plot(t_control, robot_pos[:, i], label="True")
+            axes[i].plot(t_estimate, robot_pos[:, i], label="True")
             axes[i].set_title(f"Position over time (axes={i})")
             axes[i].set_xlabel("Time step [-]")
             axes[i].set_ylabel("Position [m]")
@@ -82,7 +82,7 @@ class VisualizeSimulation:
 
         for i in range(robot_vel.shape[1]):
             idx = i + dim_pos
-            axes[idx].plot(t_control, robot_vel[:, i])
+            axes[idx].plot(t_estimate, robot_vel[:, i])
             axes[idx].set_title(f"Velocity over time (axes={i})")
             axes[idx].set_xlabel("Time step [-]")
             axes[idx].set_ylabel("Velocity [m/s]")

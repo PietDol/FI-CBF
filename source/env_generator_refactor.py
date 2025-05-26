@@ -474,33 +474,33 @@ class EnvGenerator:
 def main():
     directory = "./runs/debug_refactor"
 
-    config = EnvGeneratorConfig(
-        number_of_simulations=1,
-        work_dir=directory,
-        max_duration_of_simulation=20,
-        min_goal_distance=15,
-        min_number_of_obstacles=5,
-        max_number_of_obstacles=10,
-        max_obstacle_size={"circle": 3.0, "rectangle": [3.0, 3.0]},
-        min_number_of_sensors=1,
-        max_number_of_sensors=5,
-        costmap_size=np.array([20, 20]),
-        grid_size=0.1,
-        planner_mode="CBF infused A*",
-        robot_width=1.0,
-        robot_height=1.0,
-        min_values_state=np.array([-10, -10, -1.5, -1.5]),
-        max_values_state=np.array([10, 10, 1.5, 1.5]),
-        max_sensor_noise=0.1,
-        cbf_state_uncertainty_mode="robust",
-        control_fps=50,
-        state_estimation_fps=50,
-        goal_tolerance=0.1,
-        Kp=0.5,
-        Kd=0.1,
-        u_min_max=np.array([-1000, 1000])
-    )
-    # config = EnvGeneratorConfig.from_file("./runs/debug/env_config.json")
+    # config = EnvGeneratorConfig(
+    #     number_of_simulations=1,
+    #     work_dir=directory,
+    #     max_duration_of_simulation=20,
+    #     min_goal_distance=15,
+    #     min_number_of_obstacles=5,
+    #     max_number_of_obstacles=10,
+    #     max_obstacle_size={"circle": 3.0, "rectangle": [3.0, 3.0]},
+    #     min_number_of_sensors=1,
+    #     max_number_of_sensors=5,
+    #     costmap_size=np.array([20, 20]),
+    #     grid_size=0.1,
+    #     planner_mode="CBF infused A*",
+    #     robot_width=1.0,
+    #     robot_height=1.0,
+    #     min_values_state=np.array([-10, -10, -1.5, -1.5]),
+    #     max_values_state=np.array([10, 10, 1.5, 1.5]),
+    #     max_sensor_noise=0.1,
+    #     cbf_state_uncertainty_mode="robust",
+    #     control_fps=50,
+    #     state_estimation_fps=50,
+    #     goal_tolerance=0.1,
+    #     Kp=0.5,
+    #     Kd=0.1,
+    #     u_min_max=np.array([-1000, 1000])
+    # )
+    config = EnvGeneratorConfig.from_file("./runs/baseline_hard/env_config.json")
 
     # create logger
     logger.add(f"{config.work_dir}/simulations.log", rotation="10 MB")
@@ -510,7 +510,7 @@ def main():
 
     # apply same environment for debugging
     envs.run_env_from_file(
-        env_file="./runs/baseline_example/simulation_results/loaded_env/env_data.json",
+        env_file="./runs/baseline_hard/simulation_results/loaded_env/env_data.json",
         env_folder="loaded_env",
     )
 

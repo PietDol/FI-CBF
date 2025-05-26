@@ -43,14 +43,11 @@ class Perception:
         min_values_state: np.ndarray,
         max_values_state: np.ndarray,
         max_sensor_noise: float,
-        num_sensors: int = None,
         num_samples_per_dim: int = 4,
-        sensor_location: np.ndarray = None,
         sensors: list = None,
     ):
         self.costmap_size = costmap_size
         self.cbf = cbf
-        self.num_sensors = num_sensors
         self.min_values_state = min_values_state
         self.max_values_state = max_values_state
         self.max_sensor_noise = max_sensor_noise
@@ -64,27 +61,8 @@ class Perception:
         )
 
         # create the sensors if not given
-        if sensors is None:
-            if sensor_location is not None:
-                if sensor_location.ndim < 2:
-                    sensor_location = np.expand_dims(sensor_location, 0)
-
-                if num_sensors != sensor_location.shape[0]:
-                    logger.warning(
-                        f"Number of sensor != number of sensor locations {num_sensors} != {sensor_location.shape[0]}"
-                    )
-                    logger.info(
-                        "Instead of given sensor location, generate random locations"
-                    )
-                    self.sensors = self.create_random_sensor_locations()
-                else:
-                    self.sensors = [
-                        Sensor(sensor_location[i]) for i in range(self.num_sensors)
-                    ]
-            else:
-                self.sensors = self.create_random_sensor_locations()
-        else:
-            self.sensors = sensors
+        self.sensors = sensors
+        self.num_sensors = len(self.sensors)
 
         # create list with sensor positions
         self.sensor_positions = [sensor.sensor_position for sensor in self.sensors]
@@ -114,20 +92,8 @@ class Perception:
         )
         self.noise_costmap = self.create_costmap(costmap_type="noise")
         logger.success(
-            "Sensor added and perception magnitude and noise costmaps updated"
+            f"Sensor added (pos={sensor.sensor_position}) and perception magnitude and noise costmaps updated"
         )
-
-    def create_random_sensor_locations(self):
-        sensors = []
-        for i in range(self.num_sensors):
-            sx = np.round(
-                random.uniform(-self.costmap_size[0] / 2, self.costmap_size[0] / 2), 2
-            )
-            sy = np.round(
-                random.uniform(-self.costmap_size[1] / 2, self.costmap_size[1] / 2), 2
-            )
-            sensors.append(Sensor(np.array([sx, sy])))
-        return sensors
 
     def get_estimated_state(self, true_state: np.array):
         # function to do the state estimation
