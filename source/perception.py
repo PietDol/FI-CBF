@@ -4,7 +4,6 @@ from cbfpy import CBF
 from loguru import logger
 import jax
 import jax.numpy as jnp
-import random
 
 
 class Sensor:

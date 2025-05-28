@@ -1,7 +1,7 @@
-from perception import Perception, Sensor
-from a_star import AStarPlanner
-from cbf_infused_a_star import CBFInfusedAStar, CBFCostmap
-from robot_base_config import RobotBaseCBFConfig
+from perception import Perception
+from planners import AStarPlanner, CBFInfusedAStar
+from cbf_costmap import CBFCostmap
+from robot_cbf_config import RobotCBFConfig
 from visualization import VisualizeSimulation
 from loguru import logger
 from cbfpy import CBF
@@ -32,7 +32,7 @@ class Robot:
     ):
         # this class represents the robot
         # create cbf object
-        self.cbf_config = RobotBaseCBFConfig(
+        self.cbf_config = RobotCBFConfig(
             obstacles=obstacles,
         )
         self.cbf = CBF.from_config(self.cbf_config)
@@ -275,8 +275,6 @@ class Robot:
         t_estimation = 0.0
         t = 0.0
         dt = min(self._control_dt, self._state_esimation_dt)
-
-        self.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
 
         # apply the loop
         # in general: if both are in the same loop -> first estimation then apply control

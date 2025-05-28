@@ -2,11 +2,8 @@ import numpy as np
 import heapq
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import matplotlib.patches as patches
-from obstacles import RectangleObstacle, CircleObstacle
-from robot_base import RobotBase
-from env_config import EnvConfig
-from matplotlib.collections import PatchCollection
+from loguru import logger
+from cbf_costmap import CBFCostmap
 
 
 class Node:
@@ -264,39 +261,33 @@ class AStarPlanner:
         plt.show()
 
 
-if __name__ == "__main__":
-    start = (-7, 0.01)
-    goal = (4, 0)
-    # goal = (-7, 0.01)
-    # start = (4, 0)
-    env_config = EnvConfig(
-        pixels_per_meter=50 * np.array([1, -1]), screen_width=800, screen_height=800
-    )
-    robot = RobotBase(
-        width=1,
-        height=1,
-        env_config=env_config,
-        pos_center_start=np.array(start),
-        pos_goal=np.array(goal),
-    )
-    rect_obstacle = RectangleObstacle(
-        width=2,
-        height=2,
-        pos_center=np.array([2, 0]),
-        env_config=env_config,
-        robot=robot,
-    )
-    circ_obstacle = CircleObstacle(
-        radius=3, pos_center=np.array([-2, 3]), env_config=env_config, robot=robot
-    )
-    # obstacles = [rect_obstacle, circ_obstacle]
-    obstacles = [
-        RectangleObstacle(1, 6, np.array([0, 0.0]), env_config, robot),
-        # CircleObstacle(2, np.array([0.0, 0.0]), env_config, robot),
-        # CircleObstacle(1, np.array([4.0, 4.0]), env_config, robot)
-    ]
+class CBFInfusedAStar(AStarPlanner):
+    def __init__(
+        self,
+        costmap_size,
+        grid_size,
+        obstacles,
+        cbf_costmap: CBFCostmap,
+        diagonal_movement=True,
+    ):
+        super().__init__(costmap_size, grid_size, obstacles, diagonal_movement)
+        self.cbf_costmap = cbf_costmap
+        self.combine_costmaps(True)  # update the costmap
 
-    planner = AStarPlanner(costmap_size=(20, 20), grid_size=0.5, obstacles=obstacles)
+    def combine_costmaps(self, update=True):
+        # Ensure the costmaps have the same shape
+        if self.costmap.shape != self.cbf_costmap.costmap.shape:
+            logger.error(
+                f"Costmap shapes do not match! Shapes are {self.costmap.shape} and {self.cbf_costmap.costmap.shape}"
+            )
+            return self.costmap  # optionally return unmodified map
 
-    path = planner.plan(start, goal)
-    planner.plot_costmap(path=path["path_grid"], start=start, goal=goal)
+        # get unsafe regions
+        unsafe_mask = self.cbf_costmap.costmap < 0
+        modified_costmap = self.costmap.copy()
+        modified_costmap[unsafe_mask] = np.inf
+
+        if update:
+            self.costmap = modified_costmap
+
+        return modified_costmap

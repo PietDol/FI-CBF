@@ -1,5 +1,4 @@
-from cbfpy import CBF
-from robot_base_config import RobotBaseCBFConfig, RobotBaseCLFCBFConfig
+from robot_cbf_config import RobotCBFConfig
 import numpy as np
 import jax.numpy as jnp
 from loguru import logger
@@ -10,7 +9,7 @@ class CBFCostmap:
         self,
         costmap_size,
         grid_size,
-        cbf_config: RobotBaseCBFConfig | RobotBaseCLFCBFConfig,
+        cbf_config: RobotCBFConfig,
         cbf_reduction="min",
     ):
         self.grid_size = grid_size

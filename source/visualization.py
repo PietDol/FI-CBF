@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import numpy as np
 from loguru import logger
 import os

@@ -1,7 +1,5 @@
 import numpy as np
 from abc import ABC, abstractmethod
-import pygame
-from env_config import EnvConfig
 import jax.numpy as jnp
 import matplotlib.patches as patches
 
@@ -12,11 +10,6 @@ class Obstacle(ABC):
     @abstractmethod
     def h(self):
         # method to get the value of the cbf
-        pass
-
-    @abstractmethod
-    def pygame_drawing(self):
-        # method to return a pygame drawing
         pass
 
     @abstractmethod
@@ -42,53 +35,12 @@ class Obstacle(ABC):
 
 class RectangleObstacle(Obstacle):
     # object for obstacles
-    def __init__(
-        self,
-        width,
-        height,
-        robot_radius,
-        pos_center,
-        env_config: EnvConfig,
-        id: int,
-    ):
+    def __init__(self, width, height, robot_radius, pos_center, id: int):
         self.width = width  # in m
         self.height = height  # in m
         self.robot_radius = robot_radius  # in m (space needed by the robot)
         self.pos_center = pos_center  # in m shape (2,)
-        self.px_per_meter = env_config.pixels_per_meter  # in m
-        self.screen_width = env_config.screen_width  # in px
-        self.screen_height = env_config.screen_height  # in px
         self.id = id
-
-    @property
-    def width_px(self):
-        # returns the width in pixels
-        return int(self.width * self.px_per_meter[0])
-
-    @property
-    def height_px(self):
-        # returns the height in pixels
-        return int(self.height * self.px_per_meter[0])
-
-    @property
-    def pos_px(self):
-        """
-        Returns the obstacle's top-left corner position in pixels,
-        correctly centered in the pygame coordinate system.
-        """
-        left_top = self.pos_center + np.array([-self.width / 2, self.height / 2])
-        # Convert obstacle position from meters to pixels
-        left_top *= self.px_per_meter
-
-        # Adjust so that (0,0) is at the center of the screen
-        left_top += np.array([self.screen_width / 2, self.screen_height / 2])
-
-        return int(left_top[0]), int(left_top[1])
-
-    def pygame_drawing(self, screen, color):
-        pos_x, pos_y = self.pos_px
-        drawing = pygame.Rect(pos_x, pos_y, self.width_px, self.height_px)
-        pygame.draw.rect(screen, color, drawing)
 
     def pyplot_drawing(self, opacity=1.0):
         cx, cy = self.pos_center
@@ -232,13 +184,10 @@ class RectangleObstacle(Obstacle):
 
 class CircleObstacle(Obstacle):
     # object for circular obstacles
-    def __init__(
-        self, radius, robot_radius, pos_center, env_config: EnvConfig, id: int
-    ):
+    def __init__(self, radius, robot_radius, pos_center, id: int):
         self.radius = radius  # in m
         self.robot_radius = robot_radius  # in m (space needed by the robot)
         self.pos_center = pos_center  # in m shape (2,)
-        self.env_config = env_config
         self.id = id
 
     def add_obstacle_to_costmap(self, costmap, origin_offset, grid_size=1):
@@ -294,14 +243,6 @@ class CircleObstacle(Obstacle):
         buffer = self.robot_radius + self.radius + safety_margin
         h_values = dist - buffer
         return h_values  # shape (N,)
-
-    def pygame_drawing(self, screen, color):
-        radius_px = int(self.env_config.pixels_per_meter[0] * self.radius)
-        pos_px = self.pos_center * self.env_config.pixels_per_meter
-        pos_px += np.array(
-            [self.env_config.screen_width / 2, self.env_config.screen_height / 2]
-        )
-        pygame.draw.circle(screen, color, (pos_px[0], pos_px[1]), radius_px)
 
     def pyplot_drawing(self, opacity=1.0):
         circle = patches.Circle(
