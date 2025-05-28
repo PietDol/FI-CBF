@@ -63,7 +63,6 @@ class VisualizeSimulation:
 
     def plot_state(self, axes):
         # this function converts the axes to plots for the state
-        t_control = self.data.control_time
         t_estimate = self.data.state_estimation_time
         robot_vel = self.data.robot_vel
         robot_pos = self.data.robot_pos
@@ -74,7 +73,7 @@ class VisualizeSimulation:
             axes[i].plot(t_estimate, robot_pos_estimated[:, i], label="Estimated")
             axes[i].plot(t_estimate, robot_pos[:, i], label="True")
             axes[i].set_title(f"Position over time (axes={i})")
-            axes[i].set_xlabel("Time step [-]")
+            axes[i].set_xlabel("Time [s]")
             axes[i].set_ylabel("Position [m]")
             axes[i].legend()
             axes[i].grid(True)
@@ -83,7 +82,7 @@ class VisualizeSimulation:
             idx = i + dim_pos
             axes[idx].plot(t_estimate, robot_vel[:, i])
             axes[idx].set_title(f"Velocity over time (axes={i})")
-            axes[idx].set_xlabel("Time step [-]")
+            axes[idx].set_xlabel("Time [s]")
             axes[idx].set_ylabel("Velocity [m/s]")
             axes[idx].grid(True)
 
@@ -103,7 +102,7 @@ class VisualizeSimulation:
 
             # Customize the plot
             axes[i].set_title("Control input over time")
-            axes[i].set_xlabel("Time step [-]")
+            axes[i].set_xlabel("Time [s]")
             axes[i].set_ylabel("Control input")
             axes[i].legend()
             axes[i].grid(True)
@@ -117,7 +116,7 @@ class VisualizeSimulation:
         labels = [f"CBF {i}" for i in range(safety_margins.shape[1])]
         ax.plot(t_control, safety_margins, label=labels)
         ax.set_title(f"Safety margin over time")
-        ax.set_xlabel("Time step [-]")
+        ax.set_xlabel("Time [s]")
         ax.set_ylabel("Safety margin")
         ax.legend()
         ax.grid(True)
@@ -135,7 +134,7 @@ class VisualizeSimulation:
             axes[i].plot(t_control, h_estimated[:, i], label=f"estimated cbf {i}")
             axes[i].plot(t_control, h_true[:, i], label=f"true cbf {i}")
             axes[i].set_title(f"CBF {i} over time")
-            axes[i].set_xlabel("Time step [-]")
+            axes[i].set_xlabel("Time [s]")
             axes[i].set_ylabel("h")
             axes[i].legend()
             axes[i].grid(True)

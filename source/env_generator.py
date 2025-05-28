@@ -373,8 +373,10 @@ class EnvGenerator:
     def _run_env(self, env_folder, loaded_env_dir=None):
         robot, obstacles, sensors = self._generate_env_elements(loaded_env_dir)
 
-        # here you can add sensors to the perception module of the robot
+        # this is the part where you can change things to see what happens, e.g. add sensors, change fps
         # robot.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
+        # robot._state_esimation_dt = 1 / 30
+        # robot._control_dt = 1 / 20
 
         # save the environment parameters
         self.save_env_information(
@@ -386,8 +388,7 @@ class EnvGenerator:
 
         # run the simulation
         sim_output = robot.run_simulation(
-            sim_time=self.config.max_duration_of_simulation,
-            env_folder=env_folder
+            sim_time=self.config.max_duration_of_simulation, env_folder=env_folder
         )
 
         # create plot
