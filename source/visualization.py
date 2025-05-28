@@ -4,7 +4,7 @@ from loguru import logger
 import os
 
 
-class VisualizeData:
+class VisualizationData:
     def __init__(self):
         self.u_cbf = []
         self.u_nominal = []
@@ -52,14 +52,14 @@ class VisualizeData:
 
 class VisualizeSimulation:
     def __init__(self, pos_goal, obstacles=[], show_plot=False):
-        self.data = VisualizeData()
+        self.data = VisualizationData()
         self.pos_goal = pos_goal
         self.obstacles = obstacles
         self.show_plot = show_plot
 
     def clear(self):
         # clear the data dictionary
-        self.data = VisualizeData()
+        self.data = VisualizationData()
 
     def plot_state(self, axes):
         # this function converts the axes to plots for the state
