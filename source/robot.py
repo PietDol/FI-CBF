@@ -74,7 +74,6 @@ class Robot:
                 grid_size=grid_size,
                 obstacles=obstacles,
                 cbf_costmap=self._cbf_costmap,
-                diagonal_movement=True,
             )
 
         # create the visualizer
@@ -157,7 +156,7 @@ class Robot:
         self._goal_position = goal_pos
         self.visualizer.pos_goal = goal_pos
         self.visualizer.data.path = self._path
-        self.planner.compute_distance_map(start_pos)
+        self.planner.create_costmap(start_pos)
         self.costmaps = self.get_costmaps()
         return True
 
@@ -207,7 +206,7 @@ class Robot:
         costmaps = {
             "perception_magnitude_costmap": self.perception.perception_magnitude_costmap,
             "noise_costmap": self.perception.noise_costmap,
-            "planner_costmap": self.planner.distance_map,
+            "planner_costmap": self.planner.costmap,
             "cbf_costmap": self._cbf_costmap.costmap,
         }
 
