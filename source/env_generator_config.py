@@ -20,6 +20,7 @@ class EnvGeneratorConfig:
         costmap_size: np.ndarray = None,
         grid_size: float = 1,
         planner_mode: str = "CBF infused A*",
+        noise_cost_gain: float = 0.0,
         robot_width: float = 1.0,
         robot_height: float = 1.0,
         min_values_state: np.ndarray = None,
@@ -51,6 +52,7 @@ class EnvGeneratorConfig:
 
         # other robot parameters
         self.planner_mode = planner_mode
+        self.planner_alpha = noise_cost_gain
         self.min_values_state = min_values_state
         self.max_values_state = max_values_state
         self.control_fps = control_fps

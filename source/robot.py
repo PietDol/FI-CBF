@@ -24,6 +24,7 @@ class Robot:
         cbf_state_uncertainty_mode: str,
         control_fps: float,
         state_estimation_fps: float,
+        noise_cost_gain: float = 0.0,
         goal_tolerance: float = 0.1,
         Kp: float = 0.5,
         Kd: float = 0.1,
@@ -67,6 +68,8 @@ class Robot:
                 grid_size=grid_size,
                 obstacles=obstacles,
                 diagonal_movement=True,
+                noise_costmap=self.perception.noise_costmap,
+                noise_cost_gain=noise_cost_gain,
             )
         elif planner_mode == "CBF infused A*":
             self.planner = CBFInfusedAStar(
@@ -74,6 +77,8 @@ class Robot:
                 grid_size=grid_size,
                 obstacles=obstacles,
                 cbf_costmap=self._cbf_costmap,
+                noise_costmap=self.perception.noise_costmap,
+                noise_cost_gain=noise_cost_gain
             )
 
         # create the visualizer
@@ -158,6 +163,7 @@ class Robot:
         self.visualizer.data.path = self._path
         self.planner.create_costmap(start_pos)
         self.costmaps = self.get_costmaps()
+        logger.success("Path planned and costmaps created.")
         return True
 
     def get_intermediate_position(self):

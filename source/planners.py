@@ -13,8 +13,7 @@ class Node:
         self.grid_size = grid_size
         self.origin_offset = origin_offset
         self.pos = self.grid_to_world((x, y))  # Real-world position in meters
-        self.g_move_cost = float("inf")
-        self.g_noise_cost = float("inf")
+        self.g = float("inf")
         self.h = float("inf")
         self.f = float("inf")
         self.parent = None
@@ -37,14 +36,25 @@ class Node:
 
 class AStarPlanner:
     def __init__(
-        self, costmap_size, grid_size=1, obstacles=[], noise_costmap: np.ndarray = None
+        self,
+        costmap_size,
+        grid_size=1,
+        obstacles=[],
+        noise_costmap: np.ndarray = None,
+        noise_cost_gain: float = 1.0,
     ):
         # A* planner with euclidean heuristic
         self.obstacles = obstacles
         self.grid_size = grid_size
         self.origin_offset = np.array(costmap_size) / (2 * self.grid_size)
         self.costmap_size = costmap_size
-
+        self.noise_cost_gain = noise_cost_gain  # fraction of the g cost that is for the moving cost the rest (1-alpha) is for the noise
+        
+        # some check on alpha
+        # if there is no costmap, all the cost is made by the distance
+        if noise_costmap is None:
+            self.noise_cost_gain = 0.0
+        
         # set the movements
         self.directions = [
             (-1, 0),
@@ -91,6 +101,9 @@ class AStarPlanner:
         # create the costmap
         self.create_costmap(start_coords)
 
+        # normalize costmap
+        noise_costmap = (self.noise_costmap - np.nanmin(self.noise_costmap)) / (np.nanmax(self.noise_costmap) - np.nanmin(self.noise_costmap) + 1e-6)
+
         # convert to grid
         start_coords = self.world_to_grid(start_coords)
         goal_coords = self.world_to_grid(goal_coords)
@@ -102,9 +115,9 @@ class AStarPlanner:
         open_set = []
         heapq.heappush(open_set, (0, start_node))
 
-        start_node.g_move_cost = 0
+        start_node.g = 0
         start_node.h = self.heuristic_cost(start_node.coords(), goal_node.coords())
-        start_node.f = start_node.g_move_cost + start_node.h
+        start_node.f = start_node.g + start_node.h
 
         visited = {(start_node.x, start_node.y): start_node}
 
@@ -121,9 +134,14 @@ class AStarPlanner:
                 nx, ny = current.x + dx, current.y + dy
                 if not self.is_valid(nx, ny):
                     continue
-
+                    
+                # calculate the costs
                 move_cost = self.grid_size * np.linalg.norm([dx, dy])
-                tentative_g = current.g_move_cost + move_cost
+                if self.noise_costmap is not None:
+                    noise_cost = noise_costmap[nx, ny]
+                else:
+                    noise_cost = 0.0
+                tentative_g = current.g + move_cost + self.noise_cost_gain * noise_cost
 
                 if (nx, ny) not in visited:
                     neighbor = Node(nx, ny, self.grid_size, self.origin_offset)
@@ -131,12 +149,12 @@ class AStarPlanner:
                 else:
                     neighbor = visited[(nx, ny)]
 
-                if tentative_g < neighbor.g_move_cost:
-                    neighbor.g_move_cost = tentative_g
+                if tentative_g < neighbor.g:
+                    neighbor.g = tentative_g
                     neighbor.h = self.heuristic_cost(
                         neighbor.coords(), goal_node.coords()
                     )
-                    neighbor.f = neighbor.g_move_cost + neighbor.h
+                    neighbor.f = neighbor.g + neighbor.h
                     neighbor.parent = current
                     heapq.heappush(open_set, (neighbor.f, neighbor))
         return None  # No path found
@@ -279,8 +297,10 @@ class CBFInfusedAStar(AStarPlanner):
         grid_size,
         obstacles,
         cbf_costmap: CBFCostmap,
+        noise_costmap: np.ndarray = None,
+        noise_cost_gain: float = 1.0,
     ):
-        super().__init__(costmap_size, grid_size, obstacles)
+        super().__init__(costmap_size, grid_size, obstacles, noise_costmap, noise_cost_gain)
         self.cbf_costmap = cbf_costmap
         self.combine_costmaps(True)  # update the costmap
 
