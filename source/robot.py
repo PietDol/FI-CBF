@@ -18,7 +18,9 @@ class Robot:
         height: float,
         min_values_state: np.ndarray,
         max_values_state: np.ndarray,
+        min_sensor_noise: float,
         max_sensor_noise: float,
+        magnitude_threshold: float,
         cbf_state_uncertainty_mode: str,
         control_fps: float,
         state_estimation_fps: float,
@@ -45,7 +47,9 @@ class Robot:
             cbf=self.cbf,
             min_values_state=min_values_state,
             max_values_state=max_values_state,
+            min_sensor_noise=min_sensor_noise,
             max_sensor_noise=max_sensor_noise,
+            magnitude_threshold=magnitude_threshold,
             sensors=sensors,
         )
 
