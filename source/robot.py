@@ -18,10 +18,13 @@ class Robot:
         height: float,
         min_values_state: np.ndarray,
         max_values_state: np.ndarray,
+        min_sensor_noise: float,
         max_sensor_noise: float,
+        magnitude_threshold: float,
         cbf_state_uncertainty_mode: str,
         control_fps: float,
         state_estimation_fps: float,
+        noise_cost_gain: float = 0.0,
         goal_tolerance: float = 0.1,
         Kp: float = 0.5,
         Kd: float = 0.1,
@@ -45,7 +48,9 @@ class Robot:
             cbf=self.cbf,
             min_values_state=min_values_state,
             max_values_state=max_values_state,
+            min_sensor_noise=min_sensor_noise,
             max_sensor_noise=max_sensor_noise,
+            magnitude_threshold=magnitude_threshold,
             sensors=sensors,
         )
 
@@ -63,6 +68,8 @@ class Robot:
                 grid_size=grid_size,
                 obstacles=obstacles,
                 diagonal_movement=True,
+                noise_costmap=self.perception.noise_costmap,
+                noise_cost_gain=noise_cost_gain,
             )
         elif planner_mode == "CBF infused A*":
             self.planner = CBFInfusedAStar(
@@ -70,7 +77,8 @@ class Robot:
                 grid_size=grid_size,
                 obstacles=obstacles,
                 cbf_costmap=self._cbf_costmap,
-                diagonal_movement=True,
+                noise_costmap=self.perception.noise_costmap,
+                noise_cost_gain=noise_cost_gain
             )
 
         # create the visualizer
@@ -153,8 +161,9 @@ class Robot:
         self._goal_position = goal_pos
         self.visualizer.pos_goal = goal_pos
         self.visualizer.data.path = self._path
-        self.planner.compute_distance_map(start_pos)
+        self.planner.create_costmap(start_pos)
         self.costmaps = self.get_costmaps()
+        logger.success("Path planned and costmaps created.")
         return True
 
     def get_intermediate_position(self):
@@ -203,7 +212,7 @@ class Robot:
         costmaps = {
             "perception_magnitude_costmap": self.perception.perception_magnitude_costmap,
             "noise_costmap": self.perception.noise_costmap,
-            "planner_costmap": self.planner.distance_map,
+            "planner_costmap": self.planner.costmap,
             "cbf_costmap": self._cbf_costmap.costmap,
         }
 

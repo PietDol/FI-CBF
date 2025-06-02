@@ -35,46 +35,43 @@ class Node:
 
 
 class AStarPlanner:
-    def __init__(self, costmap_size, grid_size=1, obstacles=[], diagonal_movement=True):
+    def __init__(
+        self,
+        costmap_size,
+        grid_size=1,
+        obstacles=[],
+        noise_costmap: np.ndarray = None,
+        noise_cost_gain: float = 1.0,
+    ):
         # A* planner with euclidean heuristic
         self.obstacles = obstacles
         self.grid_size = grid_size
         self.origin_offset = np.array(costmap_size) / (2 * self.grid_size)
-
-        # create costmap costmap size is given in m
-        self.costmap = self.create_costmap(costmap_size)
-        self.rows, self.cols = self.costmap.shape
-
+        self.costmap_size = costmap_size
+        self.noise_cost_gain = noise_cost_gain  # fraction of the g cost that is for the moving cost the rest (1-alpha) is for the noise
+        
+        # some check on alpha
+        # if there is no costmap, all the cost is made by the distance
+        if noise_costmap is None:
+            self.noise_cost_gain = 0.0
+        
         # set the movements
-        self.diagonal_movement = diagonal_movement
-
-        self.directions = [(-1, 0), (1, 0), (0, -1), (0, 1)]
-        if diagonal_movement:
-            self.directions += [(-1, -1), (-1, 1), (1, -1), (1, 1)]
+        self.directions = [
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+            (-1, -1),
+            (-1, 1),
+            (1, -1),
+            (1, 1),
+        ]
 
         # attributes for the paths and distance map
+        self.noise_costmap = noise_costmap
+        self.costmap = None
         self.path_grid = None
         self.path_world = None
-        self.distance_map = None
-
-    def create_costmap(self, costmap_size):
-        # generate the costmap
-        costmap = (
-            np.ones(
-                (
-                    int(costmap_size[0] / self.grid_size),
-                    int(costmap_size[1] / self.grid_size),
-                )
-            )
-            * self.grid_size
-        )
-
-        # add the obstacles to it
-        for obstacle in self.obstacles:
-            costmap = obstacle.add_obstacle_to_costmap(
-                costmap, self.origin_offset, self.grid_size
-            )
-        return costmap
 
     def is_valid(self, x, y):
         return 0 <= x < self.rows and 0 <= y < self.cols and self.costmap[x, y] < np.inf
@@ -101,6 +98,12 @@ class AStarPlanner:
         return tuple(pos)
 
     def plan(self, start_coords, goal_coords):
+        # create the costmap
+        self.create_costmap(start_coords)
+
+        # normalize costmap
+        noise_costmap = (self.noise_costmap - np.nanmin(self.noise_costmap)) / (np.nanmax(self.noise_costmap) - np.nanmin(self.noise_costmap) + 1e-6)
+
         # convert to grid
         start_coords = self.world_to_grid(start_coords)
         goal_coords = self.world_to_grid(goal_coords)
@@ -131,9 +134,14 @@ class AStarPlanner:
                 nx, ny = current.x + dx, current.y + dy
                 if not self.is_valid(nx, ny):
                     continue
-
+                    
+                # calculate the costs
                 move_cost = self.grid_size * np.linalg.norm([dx, dy])
-                tentative_g = current.g + move_cost
+                if self.noise_costmap is not None:
+                    noise_cost = noise_costmap[nx, ny]
+                else:
+                    noise_cost = 0.0
+                tentative_g = current.g + move_cost + self.noise_cost_gain * noise_cost
 
                 if (nx, ny) not in visited:
                     neighbor = Node(nx, ny, self.grid_size, self.origin_offset)
@@ -171,24 +179,45 @@ class AStarPlanner:
 
         return path_world
 
-    def compute_distance_map(self, start):
+    def create_costmap(self, start):
         """Compute a distance-from-start costmap for visualization."""
-        distance_map = np.full_like(self.costmap, np.inf, dtype=float)
+        # generate the costmap
+        if self.costmap is None:
+            costmap = (
+                np.ones(
+                    (
+                        int(self.costmap_size[0] / self.grid_size),
+                        int(self.costmap_size[1] / self.grid_size),
+                    )
+                )
+                * self.grid_size
+            )
+            self.rows, self.cols = costmap.shape
+        else:
+            costmap = self.costmap.copy()
+
+        # add the obstacles to it
+        for obstacle in self.obstacles:
+            costmap = obstacle.add_obstacle_to_costmap(
+                costmap, self.origin_offset, self.grid_size
+            )
+
+        # add the distances
         for x in range(self.rows):
             for y in range(self.cols):
                 if self.is_valid(x, y):
                     world_cor = self.grid_to_world((x, y))
                     distance = np.linalg.norm(np.array(world_cor) - np.array(start))
-                    distance_map[x, y] = distance
-        self.distance_map = distance_map
-        return distance_map
+                    costmap[x, y] = distance
+        self.costmap = costmap
+        return costmap
 
     def plot_costmap(self, path=None, start=None, goal=None, use_distance_map=True):
         fig, ax = plt.subplots(figsize=(6, 6))
 
         # Compute distance map
         if use_distance_map and start:
-            display_map = self.compute_distance_map(start)
+            display_map = self.create_costmap(start)
         else:
             display_map = self.costmap.copy()
 
@@ -268,23 +297,36 @@ class CBFInfusedAStar(AStarPlanner):
         grid_size,
         obstacles,
         cbf_costmap: CBFCostmap,
-        diagonal_movement=True,
+        noise_costmap: np.ndarray = None,
+        noise_cost_gain: float = 1.0,
     ):
-        super().__init__(costmap_size, grid_size, obstacles, diagonal_movement)
+        super().__init__(costmap_size, grid_size, obstacles, noise_costmap, noise_cost_gain)
         self.cbf_costmap = cbf_costmap
         self.combine_costmaps(True)  # update the costmap
 
     def combine_costmaps(self, update=True):
+        if self.costmap is None:
+            modified_costmap = (
+                np.ones(
+                    (
+                        int(self.costmap_size[0] / self.grid_size),
+                        int(self.costmap_size[1] / self.grid_size),
+                    )
+                )
+                * self.grid_size
+            )
+            self.rows, self.cols = modified_costmap.shape
         # Ensure the costmaps have the same shape
-        if self.costmap.shape != self.cbf_costmap.costmap.shape:
+        elif self.costmap.shape != self.cbf_costmap.costmap.shape:
             logger.error(
                 f"Costmap shapes do not match! Shapes are {self.costmap.shape} and {self.cbf_costmap.costmap.shape}"
             )
             return self.costmap  # optionally return unmodified map
+        else:
+            modified_costmap = self.costmap.copy()
 
         # get unsafe regions
         unsafe_mask = self.cbf_costmap.costmap < 0
-        modified_costmap = self.costmap.copy()
         modified_costmap[unsafe_mask] = np.inf
 
         if update:

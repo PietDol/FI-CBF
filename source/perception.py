@@ -42,6 +42,8 @@ class Perception:
         min_values_state: np.ndarray,
         max_values_state: np.ndarray,
         max_sensor_noise: float,
+        min_sensor_noise: float = 0.0,
+        magnitude_threshold: float = 2.0,
         num_samples_per_dim: int = 4,
         sensors: list = None,
     ):
@@ -50,6 +52,8 @@ class Perception:
         self.min_values_state = min_values_state
         self.max_values_state = max_values_state
         self.max_sensor_noise = max_sensor_noise
+        self.min_sensor_noise = min_sensor_noise
+        self.magnitude_threshold = magnitude_threshold
 
         # parameters for the sigmoid function to convert magnitude to noise
         self.alpha = 0.8  # value for hybrid approach between max and mean
@@ -110,12 +114,20 @@ class Perception:
         magnitudes = np.array(
             [sensor.get_sensor_magnitude(x_true) for sensor in self.sensors]
         )
-        return self.alpha * np.max(magnitudes) + (1 - self.alpha) * np.mean(magnitudes)
+        return np.sum(magnitudes)
 
     def get_perception_noise(self, x_true: np.ndarray):
         # returns the standard deviation for the noise
         mag = self.get_perception_magnitude(x_true)
-        return (1 - mag) * self.max_sensor_noise
+        if mag > self.magnitude_threshold:
+            return self.min_sensor_noise
+        else:
+            return (
+                self.max_sensor_noise
+                + mag
+                * (self.min_sensor_noise - self.max_sensor_noise)
+                / self.magnitude_threshold
+            )
 
     def get_perception_magnitude_batched(self, x_true: jnp.ndarray) -> jnp.ndarray:
         # batched version: compute perception magnitude for each position in (N, 2).
@@ -123,14 +135,21 @@ class Perception:
             mags = jnp.array(
                 [sensor.get_sensor_magnitude(x) for sensor in self.sensors]
             )
-            return self.alpha * jnp.max(mags) + (1 - self.alpha) * jnp.mean(mags)
+            return jnp.sum(mags)
 
         return jax.vmap(single_mag)(x_true)  # (N,)
 
     def get_perception_noise_batched(self, x_true: jnp.ndarray) -> jnp.ndarray:
         # batched version: compute noise std for each position in (N, 2).
         mags = self.get_perception_magnitude_batched(x_true)  # (N,)
-        return (1 - mags) * self.max_sensor_noise
+        return jnp.where(
+            mags > self.magnitude_threshold,
+            self.min_sensor_noise,
+            self.max_sensor_noise
+            + mags
+            * (self.min_sensor_noise - self.max_sensor_noise)
+            / self.magnitude_threshold,
+        )
 
     def create_grid_samples(self, min_vals, max_vals, num_points_per_dim):
         # creates a grid for the min and max values with each num_points_per_dim

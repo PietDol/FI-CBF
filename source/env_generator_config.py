@@ -20,11 +20,14 @@ class EnvGeneratorConfig:
         costmap_size: np.ndarray = None,
         grid_size: float = 1,
         planner_mode: str = "CBF infused A*",
+        noise_cost_gain: float = 0.0,
         robot_width: float = 1.0,
         robot_height: float = 1.0,
         min_values_state: np.ndarray = None,
         max_values_state: np.ndarray = None,
+        min_sensor_noise: float = 0.0,
         max_sensor_noise: float = 0.1,
+        magnitude_threshold: float = 2.0,
         cbf_state_uncertainty_mode: str = "robust",
         control_fps: float = 50,
         state_estimation_fps: float = 50,
@@ -49,6 +52,7 @@ class EnvGeneratorConfig:
 
         # other robot parameters
         self.planner_mode = planner_mode
+        self.planner_alpha = noise_cost_gain
         self.min_values_state = min_values_state
         self.max_values_state = max_values_state
         self.control_fps = control_fps
@@ -69,7 +73,9 @@ class EnvGeneratorConfig:
         # perception parameters
         self.min_number_of_sensors = min_number_of_sensors
         self.max_number_of_sensors = max_number_of_sensors
-        self.max_sensor_noise = max_sensor_noise  # in m
+        self.min_sensor_noise = min_sensor_noise    # in m
+        self.max_sensor_noise = max_sensor_noise    # in m
+        self.magnitude_threshold = magnitude_threshold
 
     def log_information(self):
         # log all the inforation

@@ -343,11 +343,14 @@ class EnvGenerator:
             costmap_size=self.config.costmap_size,
             grid_size=self.config.grid_size,
             planner_mode=self.config.planner_mode,
+            noise_cost_gain=self.config.planner_alpha,
             width=self.config.robot_width,
             height=self.config.robot_height,
             min_values_state=self.config.min_values_state,
             max_values_state=self.config.max_values_state,
+            min_sensor_noise=self.config.min_sensor_noise,
             max_sensor_noise=self.config.max_sensor_noise,
+            magnitude_threshold=self.config.magnitude_threshold,
             cbf_state_uncertainty_mode=self.config.cbf_state_uncertainty_mode,
             control_fps=self.config.control_fps,
             state_estimation_fps=self.config.state_estimation_fps,
@@ -377,6 +380,10 @@ class EnvGenerator:
         # robot.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
         # robot._state_esimation_dt = 1 / 30
         # robot._control_dt = 1 / 20
+
+        # check if there is a path
+        if robot.path is None:
+            return
 
         # save the environment parameters
         self.save_env_information(
@@ -466,35 +473,38 @@ class EnvGenerator:
 
 
 def main():
-    directory = "./runs/debug_refactor"
+    directory = "./runs/baseline_hard"
 
-    # config = EnvGeneratorConfig(
-    #     number_of_simulations=1,
-    #     work_dir=directory,
-    #     max_duration_of_simulation=20,
-    #     min_goal_distance=15,
-    #     min_number_of_obstacles=5,
-    #     max_number_of_obstacles=10,
-    #     max_obstacle_size={"circle": 3.0, "rectangle": [3.0, 3.0]},
-    #     min_number_of_sensors=1,
-    #     max_number_of_sensors=5,
-    #     costmap_size=np.array([20, 20]),
-    #     grid_size=0.1,
-    #     planner_mode="CBF infused A*",
-    #     robot_width=1.0,
-    #     robot_height=1.0,
-    #     min_values_state=np.array([-10, -10, -1.5, -1.5]),
-    #     max_values_state=np.array([10, 10, 1.5, 1.5]),
-    #     max_sensor_noise=0.1,
-    #     cbf_state_uncertainty_mode="robust",
-    #     control_fps=50,
-    #     state_estimation_fps=50,
-    #     goal_tolerance=0.1,
-    #     Kp=0.5,
-    #     Kd=0.1,
-    #     u_min_max=np.array([-1000, 1000])
-    # )
-    config = EnvGeneratorConfig.from_file("./runs/baseline_hard/env_config.json")
+    config = EnvGeneratorConfig(
+        number_of_simulations=1,
+        work_dir=directory,
+        max_duration_of_simulation=20,
+        min_goal_distance=15,
+        min_number_of_obstacles=5,
+        max_number_of_obstacles=10,
+        max_obstacle_size={"circle": 3.0, "rectangle": [3.0, 3.0]},
+        min_number_of_sensors=1,
+        max_number_of_sensors=5,
+        costmap_size=np.array([20, 20]),
+        grid_size=0.1,
+        planner_mode="CBF infused A*",
+        noise_cost_gain=0.0,    # change for the cost to go through uncertain regions
+        robot_width=1.0,
+        robot_height=1.0,
+        min_values_state=np.array([-10, -10, -1.5, -1.5]),
+        max_values_state=np.array([10, 10, 1.5, 1.5]),
+        min_sensor_noise=0.0,
+        max_sensor_noise=0.1,
+        magnitude_threshold=2.0,
+        cbf_state_uncertainty_mode="robust",
+        control_fps=50,
+        state_estimation_fps=50,
+        goal_tolerance=0.1,
+        Kp=0.5,
+        Kd=0.1,
+        u_min_max=np.array([-1000, 1000])
+    )
+    # config = EnvGeneratorConfig.from_file("./runs/baseline_hard/env_config.json")
 
     # create logger
     logger.add(f"{config.work_dir}/simulations.log", rotation="10 MB")
