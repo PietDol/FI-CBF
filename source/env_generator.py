@@ -488,7 +488,7 @@ def main():
         costmap_size=np.array([20, 20]),
         grid_size=0.1,
         planner_mode="CBF infused A*",
-        noise_cost_gain=5.0,
+        noise_cost_gain=0.0,    # change for the cost to go through uncertain regions
         robot_width=1.0,
         robot_height=1.0,
         min_values_state=np.array([-10, -10, -1.5, -1.5]),
