@@ -78,7 +78,7 @@ class Robot:
                 obstacles=obstacles,
                 cbf_costmap=self._cbf_costmap,
                 noise_costmap=self.perception.noise_costmap,
-                noise_cost_gain=noise_cost_gain
+                noise_cost_gain=noise_cost_gain,
             )
 
         # create the visualizer
@@ -100,6 +100,7 @@ class Robot:
         self._path_idx = 0
         self._goal_tolerance = goal_tolerance
         self._cbf_state_uncertainty_mode = cbf_state_uncertainty_mode
+        self._switch_active = False
 
         # control parameters
         self._u_min_max = u_min_max
@@ -225,6 +226,23 @@ class Robot:
         self.visualizer.data.cbf_costmap = costmaps["cbf_costmap"]
         return costmaps
 
+    def activate_switch(self, u_nominal, u_cbf):
+        # method to check whether the switch should be active
+        if self._switch_active and (
+            np.all(np.abs(u_nominal - u_cbf) <= 0.01)
+            and np.all(self._estimated_state[2:] >= 0.2)
+        ):
+            # condition to set deactivate the switch
+            logger.debug("Switch deactivated")
+            self._switch_active = False
+        elif not self._switch_active and (
+            np.all(np.abs(u_nominal - u_cbf) > 0.01)
+            and np.all(self._estimated_state[2:] < 0.2)
+        ):
+            logger.debug("Switch activated")
+            # condition to activate the switch
+            self._switch_active = True
+
     #########################################################
     # MAIN METHODS
     #########################################################
@@ -239,10 +257,19 @@ class Robot:
         target_pos = self.get_intermediate_position()
         u_nominal = self.pd_controller(target_pos)
         noise = self.perception.get_perception_noise(self._true_state[2:])
-        safety_margin = self.perception.calculate_safety_margin(
-            noise=noise, u_nominal=u_nominal, mode=self._cbf_state_uncertainty_mode
-        )
+        if self._switch_active:
+            u_nominal = np.clip(u_nominal, -0.1, 0.1)
+            safety_margin = self.perception.calculate_safety_margin(
+                noise=noise, u_nominal=u_nominal, mode="probabilistic"
+            )
+        elif not self._switch_active:
+            safety_margin = self.perception.calculate_safety_margin(
+                noise=noise, u_nominal=u_nominal, mode="robust"
+            )
         u_cbf = self.cbf.safety_filter(self._estimated_state, u_nominal, safety_margin)
+
+        # check whether to activate the switch
+        self.activate_switch(u_nominal, u_cbf)
 
         # add data to visualizer
         h_true = self.cbf_config.alpha(

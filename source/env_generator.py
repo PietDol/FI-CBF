@@ -20,6 +20,9 @@ class EnvGenerator:
 
         # create the env_config (mainly needed for switching the x and y dimension)
         self.work_dir_available = self._create_work_dir()
+        if self.work_dir_available:
+            logger.add(f"{self.config.work_dir}/simulations.log", rotation="10 MB")
+            logger.info("New simulation is started!")
 
         # create workdir to save all the combined image
         os.makedirs(
@@ -36,7 +39,6 @@ class EnvGenerator:
         # function to create work_dir
         try:
             os.makedirs(f"{self.config.work_dir}/simulation_results", exist_ok=False)
-            logger.info("New simulation is started!")
             return True
         except FileExistsError:
             logger.error(f"Directory already exists: {self.config.work_dir}")
@@ -496,7 +498,7 @@ def main():
         min_sensor_noise=0.0,
         max_sensor_noise=0.1,
         magnitude_threshold=2.0,
-        cbf_state_uncertainty_mode="robust",
+        cbf_state_uncertainty_mode="robust",    # probabilistic or robust
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
@@ -507,7 +509,7 @@ def main():
     # config = EnvGeneratorConfig.from_file("./runs/baseline_hard/env_config.json")
 
     # create logger
-    logger.add(f"{config.work_dir}/simulations.log", rotation="10 MB")
+    # logger.add(f"{config.work_dir}/simulations.log", rotation="10 MB")
 
     # create the environment generator class
     envs = EnvGenerator(config=config)
