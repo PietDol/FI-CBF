@@ -21,9 +21,12 @@ class Robot:
         min_sensor_noise: float,
         max_sensor_noise: float,
         magnitude_threshold: float,
-        cbf_state_uncertainty_mode: str,
         control_fps: float,
         state_estimation_fps: float,
+        cbf_state_uncertainty_mode: str,
+        cbf_switch_velocity_thres: float = None,
+        cbf_switch_control_diff_thres: float = None,
+        cbf_switch_nominal_control_mag: float = None,
         noise_cost_gain: float = 0.0,
         goal_tolerance: float = 0.1,
         Kp: float = 0.5,
@@ -100,6 +103,9 @@ class Robot:
         self._path_idx = 0
         self._goal_tolerance = goal_tolerance
         self._cbf_state_uncertainty_mode = cbf_state_uncertainty_mode
+        self._cbf_switch_velocity_thres = cbf_switch_velocity_thres
+        self._cbf_switch_control_diff_thres = cbf_switch_control_diff_thres
+        self._cbf_switch_nominal_control_mag = cbf_switch_nominal_control_mag
         self._switch_active = False
 
         # control parameters
@@ -228,16 +234,20 @@ class Robot:
 
     def activate_switch(self, u_nominal, u_cbf):
         # method to check whether the switch should be active
+        if self._cbf_switch_control_diff_thres is None or self._cbf_switch_velocity_thres is None:
+            self._switch_active = False
+            return
+        
         if self._switch_active and (
-            np.all(np.abs(u_nominal - u_cbf) <= 0.01)
-            and np.all(self._estimated_state[2:] >= 0.2)
+            np.all(np.abs(u_nominal - u_cbf) <= self._cbf_switch_control_diff_thres)
+            and np.all(self._estimated_state[2:] >= self._cbf_switch_velocity_thres)
         ):
             # condition to set deactivate the switch
             logger.debug("Switch deactivated")
             self._switch_active = False
         elif not self._switch_active and (
-            np.all(np.abs(u_nominal - u_cbf) > 0.01)
-            and np.all(self._estimated_state[2:] < 0.2)
+            np.all(np.abs(u_nominal - u_cbf) > self._cbf_switch_control_diff_thres)
+            and np.all(self._estimated_state[2:] < self._cbf_switch_velocity_thres)
         ):
             logger.debug("Switch activated")
             # condition to activate the switch
@@ -257,14 +267,24 @@ class Robot:
         target_pos = self.get_intermediate_position()
         u_nominal = self.pd_controller(target_pos)
         noise = self.perception.get_perception_noise(self._true_state[2:])
-        if self._switch_active:
-            u_nominal = np.clip(u_nominal, -0.1, 0.1)
+        if self._switch_active and self._cbf_switch_nominal_control_mag is not None:
+            u_nominal = np.clip(
+                u_nominal,
+                -self._cbf_switch_nominal_control_mag,
+                self._cbf_switch_nominal_control_mag,
+            )
             safety_margin = self.perception.calculate_safety_margin(
                 noise=noise, u_nominal=u_nominal, mode="probabilistic"
             )
-        elif not self._switch_active:
+        elif (
+            not self._switch_active and self._cbf_switch_nominal_control_mag is not None
+        ):
             safety_margin = self.perception.calculate_safety_margin(
                 noise=noise, u_nominal=u_nominal, mode="robust"
+            )
+        else:
+            safety_margin = self.perception.calculate_safety_margin(
+                noise=noise, u_nominal=u_nominal, mode=self._cbf_state_uncertainty_mode
             )
         u_cbf = self.cbf.safety_filter(self._estimated_state, u_nominal, safety_margin)
 

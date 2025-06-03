@@ -499,6 +499,9 @@ def main():
         max_sensor_noise=0.1,
         magnitude_threshold=2.0,
         cbf_state_uncertainty_mode="robust",    # probabilistic or robust
+        cbf_switch_velocity_thres=0.2,
+        cbf_switch_control_diff_thres=0.01,
+        cbf_switch_nominal_control_mag=0.1,
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
