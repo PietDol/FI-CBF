@@ -29,6 +29,9 @@ class EnvGeneratorConfig:
         max_sensor_noise: float = 0.1,
         magnitude_threshold: float = 2.0,
         cbf_state_uncertainty_mode: str = "robust",
+        cbf_switch_velocity_thres: float = None,
+        cbf_switch_control_diff_thres: float = None,
+        cbf_switch_nominal_control_mag: float = None,
         control_fps: float = 50,
         state_estimation_fps: float = 50,
         goal_tolerance: float = 0.1,
@@ -69,6 +72,9 @@ class EnvGeneratorConfig:
         self.cbf_state_uncertainty_mode = (
             cbf_state_uncertainty_mode  # choose between robust or probabilistic
         )
+        self.cbf_switch_velocity_thres = cbf_switch_velocity_thres
+        self.cbf_switch_control_diff_thres = cbf_switch_control_diff_thres
+        self.cbf_switch_nominal_control_mag = cbf_switch_nominal_control_mag
 
         # perception parameters
         self.min_number_of_sensors = min_number_of_sensors

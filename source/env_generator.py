@@ -20,6 +20,9 @@ class EnvGenerator:
 
         # create the env_config (mainly needed for switching the x and y dimension)
         self.work_dir_available = self._create_work_dir()
+        if self.work_dir_available:
+            logger.add(f"{self.config.work_dir}/simulations.log", rotation="10 MB")
+            logger.info("New simulation is started!")
 
         # create workdir to save all the combined image
         os.makedirs(
@@ -36,7 +39,6 @@ class EnvGenerator:
         # function to create work_dir
         try:
             os.makedirs(f"{self.config.work_dir}/simulation_results", exist_ok=False)
-            logger.info("New simulation is started!")
             return True
         except FileExistsError:
             logger.error(f"Directory already exists: {self.config.work_dir}")
@@ -352,6 +354,9 @@ class EnvGenerator:
             max_sensor_noise=self.config.max_sensor_noise,
             magnitude_threshold=self.config.magnitude_threshold,
             cbf_state_uncertainty_mode=self.config.cbf_state_uncertainty_mode,
+            cbf_switch_velocity_thres=self.config.cbf_switch_velocity_thres,
+            cbf_switch_control_diff_thres=self.config.cbf_switch_control_diff_thres,
+            cbf_switch_nominal_control_mag=self.config.cbf_switch_nominal_control_mag,
             control_fps=self.config.control_fps,
             state_estimation_fps=self.config.state_estimation_fps,
             goal_tolerance=self.config.goal_tolerance,
@@ -473,7 +478,7 @@ class EnvGenerator:
 
 
 def main():
-    directory = "./runs/baseline_hard"
+    directory = "./runs/debug"
 
     config = EnvGeneratorConfig(
         number_of_simulations=1,
@@ -488,7 +493,7 @@ def main():
         costmap_size=np.array([20, 20]),
         grid_size=0.1,
         planner_mode="CBF infused A*",
-        noise_cost_gain=0.0,    # change for the cost to go through uncertain regions
+        noise_cost_gain=0.0,    # change for the cost to go through uncertain regions (5.0)
         robot_width=1.0,
         robot_height=1.0,
         min_values_state=np.array([-10, -10, -1.5, -1.5]),
@@ -496,7 +501,10 @@ def main():
         min_sensor_noise=0.0,
         max_sensor_noise=0.1,
         magnitude_threshold=2.0,
-        cbf_state_uncertainty_mode="robust",
+        cbf_state_uncertainty_mode="robust",    # probabilistic or robust
+        cbf_switch_velocity_thres=0.2,  # 0.2
+        cbf_switch_control_diff_thres=0.01, # 0.01
+        cbf_switch_nominal_control_mag=0.1, # 0.1
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
@@ -507,14 +515,14 @@ def main():
     # config = EnvGeneratorConfig.from_file("./runs/baseline_hard/env_config.json")
 
     # create logger
-    logger.add(f"{config.work_dir}/simulations.log", rotation="10 MB")
+    # logger.add(f"{config.work_dir}/simulations.log", rotation="10 MB")
 
     # create the environment generator class
     envs = EnvGenerator(config=config)
 
     # apply same environment for debugging
     envs.run_env_from_file(
-        env_file="./runs/baseline_hard/simulation_results/loaded_env/env_data.json",
+        env_file="./runs/baseline_small_gap/simulation_results/loaded_env/env_data.json",
         env_folder="loaded_env",
     )
 

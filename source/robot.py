@@ -21,9 +21,12 @@ class Robot:
         min_sensor_noise: float,
         max_sensor_noise: float,
         magnitude_threshold: float,
-        cbf_state_uncertainty_mode: str,
         control_fps: float,
         state_estimation_fps: float,
+        cbf_state_uncertainty_mode: str,
+        cbf_switch_velocity_thres: float = None,
+        cbf_switch_control_diff_thres: float = None,
+        cbf_switch_nominal_control_mag: float = None,
         noise_cost_gain: float = 0.0,
         goal_tolerance: float = 0.1,
         Kp: float = 0.5,
@@ -78,7 +81,7 @@ class Robot:
                 obstacles=obstacles,
                 cbf_costmap=self._cbf_costmap,
                 noise_costmap=self.perception.noise_costmap,
-                noise_cost_gain=noise_cost_gain
+                noise_cost_gain=noise_cost_gain,
             )
 
         # create the visualizer
@@ -100,6 +103,10 @@ class Robot:
         self._path_idx = 0
         self._goal_tolerance = goal_tolerance
         self._cbf_state_uncertainty_mode = cbf_state_uncertainty_mode
+        self._cbf_switch_velocity_thres = cbf_switch_velocity_thres
+        self._cbf_switch_control_diff_thres = cbf_switch_control_diff_thres
+        self._cbf_switch_nominal_control_mag = cbf_switch_nominal_control_mag
+        self._switch_active = False
 
         # control parameters
         self._u_min_max = u_min_max
@@ -111,6 +118,8 @@ class Robot:
         self._control_dt = 1 / control_fps
         self._state_estimation_fps = state_estimation_fps
         self._state_esimation_dt = 1 / state_estimation_fps
+        self._t_control = 0.0
+        self._t_estimation = 0.0
 
         # costmaps
         self.costmaps = self.get_costmaps()
@@ -225,6 +234,33 @@ class Robot:
         self.visualizer.data.cbf_costmap = costmaps["cbf_costmap"]
         return costmaps
 
+    def activate_switch(self, u_nominal, u_cbf):
+        # method to check whether the switch should be active
+        if self._cbf_switch_control_diff_thres is None or self._cbf_switch_velocity_thres is None:
+            self._switch_active = False
+            return
+        
+        if self._switch_active and (
+            np.all(np.abs(u_nominal - u_cbf) <= self._cbf_switch_control_diff_thres)
+            and np.all(self._estimated_state[2:] >= self._cbf_switch_velocity_thres)
+        ):
+            # condition to set deactivate the switch
+            logger.debug("Switch deactivated")
+            self._switch_active = False
+
+            # add time to the visualizer
+            self.visualizer.data.cbf_switch_deactive.append(self._t_control)
+        elif not self._switch_active and (
+            np.all(np.abs(u_nominal - u_cbf) > self._cbf_switch_control_diff_thres)
+            and np.all(self._estimated_state[2:] < self._cbf_switch_velocity_thres)
+        ):
+            logger.debug("Switch activated")
+            # condition to activate the switch
+            self._switch_active = True
+
+            # add time to the visualizer
+            self.visualizer.data.cbf_switch_active.append(self._t_control)
+
     #########################################################
     # MAIN METHODS
     #########################################################
@@ -239,10 +275,29 @@ class Robot:
         target_pos = self.get_intermediate_position()
         u_nominal = self.pd_controller(target_pos)
         noise = self.perception.get_perception_noise(self._true_state[2:])
-        safety_margin = self.perception.calculate_safety_margin(
-            noise=noise, u_nominal=u_nominal, mode=self._cbf_state_uncertainty_mode
-        )
+        if self._switch_active and self._cbf_switch_nominal_control_mag is not None:
+            u_nominal = np.clip(
+                u_nominal,
+                -self._cbf_switch_nominal_control_mag,
+                self._cbf_switch_nominal_control_mag,
+            )
+            safety_margin = self.perception.calculate_safety_margin(
+                noise=noise, u_nominal=u_nominal, mode="probabilistic"
+            )
+        elif (
+            not self._switch_active and self._cbf_switch_nominal_control_mag is not None
+        ):
+            safety_margin = self.perception.calculate_safety_margin(
+                noise=noise, u_nominal=u_nominal, mode="robust"
+            )
+        else:
+            safety_margin = self.perception.calculate_safety_margin(
+                noise=noise, u_nominal=u_nominal, mode=self._cbf_state_uncertainty_mode
+            )
         u_cbf = self.cbf.safety_filter(self._estimated_state, u_nominal, safety_margin)
+
+        # check whether to activate the switch
+        self.activate_switch(u_nominal, u_cbf)
 
         # add data to visualizer
         h_true = self.cbf_config.alpha(
@@ -280,8 +335,8 @@ class Robot:
     def run_simulation(self, sim_time: float, env_folder: str):
         if self.path is None:
             return None
-        t_control = 0.0
-        t_estimation = 0.0
+        self._t_control = 0.0
+        self._t_estimation = 0.0
         t = 0.0
         dt = min(self._control_dt, self._state_esimation_dt)
 
@@ -289,19 +344,19 @@ class Robot:
         # in general: if both are in the same loop -> first estimation then apply control
         while t < sim_time and not self.check_goal_reached():
             # check order
-            if t_control < t_estimation and t >= t_control:
+            if self._t_control < self._t_estimation and t >= self._t_control:
                 self.control_update()
-                t_control += self._control_dt
+                self._t_control += self._control_dt
 
             # check if estimation needs to be updated
-            if t >= t_estimation:
+            if t >= self._t_estimation:
                 self.state_estimation_update()
-                t_estimation += self._state_esimation_dt
+                self._t_estimation += self._state_esimation_dt
 
             # check if control needs to be updated
-            if t >= t_control:
+            if t >= self._t_control:
                 self.control_update()
-                t_control += self._control_dt
+                self._t_control += self._control_dt
 
             # check for collision
             for i, obstacle in enumerate(self._obstacles):
