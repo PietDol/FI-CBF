@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from loguru import logger
 import os
+import jax.numpy as jnp
 
 
 class VisualizationData:
@@ -20,6 +21,8 @@ class VisualizationData:
         self.noise_costmap = []
         self.sensor_positions = []
         self.path = []
+        self.cbf_switch_active = []
+        self.cbf_switch_deactive = []
         self.control_time = []
         self.state_estimation_time = []
         self.converted_to_numpy = False
@@ -27,8 +30,10 @@ class VisualizationData:
     def to_numpy(self):
         if not self.converted_to_numpy:
             for attr, value in self.__dict__.items():
-                if isinstance(value, list):
+                if isinstance(value, list) or isinstance(value, jnp.ndarray):
                     setattr(self, attr, np.array(value))
+                else:
+                    logger.debug(f"Not list: {attr} -> {type(value)}")
 
             self.converted_to_numpy = True
 
@@ -80,10 +85,27 @@ class VisualizeSimulation:
 
         for i in range(robot_vel.shape[1]):
             idx = i + dim_pos
-            axes[idx].plot(t_estimate, robot_vel[:, i])
+            y_min = np.min(robot_vel[:, i])
+            y_max = np.max(robot_vel[:, i])
+            axes[idx].plot(t_estimate, robot_vel[:, i], label="Velocity")
+            axes[idx].vlines(
+                self.data.cbf_switch_active,
+                y_min,
+                y_max,
+                color="g",
+                label="Switch activated",
+            )
+            axes[idx].vlines(
+                self.data.cbf_switch_deactive,
+                y_min,
+                y_max,
+                color="r",
+                label="Switch deactivated",
+            )
             axes[idx].set_title(f"Velocity over time (axes={i})")
             axes[idx].set_xlabel("Time [s]")
             axes[idx].set_ylabel("Velocity [m/s]")
+            axes[i].legend()
             axes[idx].grid(True)
 
         return axes
@@ -97,8 +119,24 @@ class VisualizeSimulation:
 
         # Plot the data for controller
         for i in range(dim_controller):
+            y_min = min([np.min(u_cbf[:, i]), np.max(u_nominal[:, i])])
+            y_max = max([np.max(u_cbf[:, i]), np.max(u_nominal[:, i])])
             axes[i].plot(t_control, u_cbf[:, i], label=f"u cbf {i}")
             axes[i].plot(t_control, u_nominal[:, i], label=f"u nominal {i}")
+            axes[i].vlines(
+                self.data.cbf_switch_active,
+                y_min,
+                y_max,
+                color="g",
+                label="Switch activated",
+            )
+            axes[i].vlines(
+                self.data.cbf_switch_deactive,
+                y_min,
+                y_max,
+                color="r",
+                label="Switch deactivated",
+            )
 
             # Customize the plot
             axes[i].set_title("Control input over time")
@@ -113,8 +151,24 @@ class VisualizeSimulation:
         # function to plot the safety margin over time
         t_control = self.data.control_time
         safety_margins = self.data.safety_margin
+        y_min = np.min(safety_margins)
+        y_max = np.max(safety_margins)
         labels = [f"CBF {i}" for i in range(safety_margins.shape[1])]
         ax.plot(t_control, safety_margins, label=labels)
+        ax.vlines(
+            self.data.cbf_switch_active,
+            y_min,
+            y_max,
+            color="g",
+            label="Switch activated",
+        )
+        ax.vlines(
+            self.data.cbf_switch_deactive,
+            y_min,
+            y_max,
+            color="r",
+            label="Switch deactivated",
+        )
         ax.set_title(f"Safety margin over time")
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("Safety margin")
@@ -131,8 +185,24 @@ class VisualizeSimulation:
 
         # Plot each CBF separately
         for i in range(num_cbfs):
+            y_min = min([np.min(h_estimated[:, i]), np.min(h_true[:, i])])
+            y_max = max([np.max(h_estimated[:, i]), np.max(h_true[:, i])])
             axes[i].plot(t_control, h_estimated[:, i], label=f"estimated cbf {i}")
             axes[i].plot(t_control, h_true[:, i], label=f"true cbf {i}")
+            axes[i].vlines(
+                self.data.cbf_switch_active,
+                y_min,
+                y_max,
+                color="g",
+                label="Switch activated",
+            )
+            axes[i].vlines(
+                self.data.cbf_switch_deactive,
+                y_min,
+                y_max,
+                color="r",
+                label="Switch deactivated",
+            )
             axes[i].set_title(f"CBF {i} over time")
             axes[i].set_xlabel("Time [s]")
             axes[i].set_ylabel("h")

@@ -118,6 +118,8 @@ class Robot:
         self._control_dt = 1 / control_fps
         self._state_estimation_fps = state_estimation_fps
         self._state_esimation_dt = 1 / state_estimation_fps
+        self._t_control = 0.0
+        self._t_estimation = 0.0
 
         # costmaps
         self.costmaps = self.get_costmaps()
@@ -245,6 +247,9 @@ class Robot:
             # condition to set deactivate the switch
             logger.debug("Switch deactivated")
             self._switch_active = False
+
+            # add time to the visualizer
+            self.visualizer.data.cbf_switch_deactive.append(self._t_control)
         elif not self._switch_active and (
             np.all(np.abs(u_nominal - u_cbf) > self._cbf_switch_control_diff_thres)
             and np.all(self._estimated_state[2:] < self._cbf_switch_velocity_thres)
@@ -252,6 +257,9 @@ class Robot:
             logger.debug("Switch activated")
             # condition to activate the switch
             self._switch_active = True
+
+            # add time to the visualizer
+            self.visualizer.data.cbf_switch_active.append(self._t_control)
 
     #########################################################
     # MAIN METHODS
@@ -327,8 +335,8 @@ class Robot:
     def run_simulation(self, sim_time: float, env_folder: str):
         if self.path is None:
             return None
-        t_control = 0.0
-        t_estimation = 0.0
+        self._t_control = 0.0
+        self._t_estimation = 0.0
         t = 0.0
         dt = min(self._control_dt, self._state_esimation_dt)
 
@@ -336,19 +344,19 @@ class Robot:
         # in general: if both are in the same loop -> first estimation then apply control
         while t < sim_time and not self.check_goal_reached():
             # check order
-            if t_control < t_estimation and t >= t_control:
+            if self._t_control < self._t_estimation and t >= self._t_control:
                 self.control_update()
-                t_control += self._control_dt
+                self._t_control += self._control_dt
 
             # check if estimation needs to be updated
-            if t >= t_estimation:
+            if t >= self._t_estimation:
                 self.state_estimation_update()
-                t_estimation += self._state_esimation_dt
+                self._t_estimation += self._state_esimation_dt
 
             # check if control needs to be updated
-            if t >= t_control:
+            if t >= self._t_control:
                 self.control_update()
-                t_control += self._control_dt
+                self._t_control += self._control_dt
 
             # check for collision
             for i, obstacle in enumerate(self._obstacles):
