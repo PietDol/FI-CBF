@@ -478,7 +478,7 @@ class EnvGenerator:
 
 
 def main():
-    directory = "./runs/baseline_hard"
+    directory = "./runs/debug"
 
     config = EnvGeneratorConfig(
         number_of_simulations=1,
@@ -493,7 +493,7 @@ def main():
         costmap_size=np.array([20, 20]),
         grid_size=0.1,
         planner_mode="CBF infused A*",
-        noise_cost_gain=0.0,    # change for the cost to go through uncertain regions
+        noise_cost_gain=0.0,    # change for the cost to go through uncertain regions (5.0)
         robot_width=1.0,
         robot_height=1.0,
         min_values_state=np.array([-10, -10, -1.5, -1.5]),
@@ -502,9 +502,9 @@ def main():
         max_sensor_noise=0.1,
         magnitude_threshold=2.0,
         cbf_state_uncertainty_mode="robust",    # probabilistic or robust
-        cbf_switch_velocity_thres=0.2,
-        cbf_switch_control_diff_thres=0.01,
-        cbf_switch_nominal_control_mag=0.1,
+        cbf_switch_velocity_thres=0.2,  # 0.2
+        cbf_switch_control_diff_thres=0.01, # 0.01
+        cbf_switch_nominal_control_mag=0.1, # 0.1
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
@@ -522,7 +522,7 @@ def main():
 
     # apply same environment for debugging
     envs.run_env_from_file(
-        env_file="./runs/baseline_hard/simulation_results/loaded_env/env_data.json",
+        env_file="./runs/baseline_small_gap/simulation_results/loaded_env/env_data.json",
         env_folder="loaded_env",
     )
 

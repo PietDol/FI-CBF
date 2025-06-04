@@ -32,8 +32,6 @@ class VisualizationData:
             for attr, value in self.__dict__.items():
                 if isinstance(value, list) or isinstance(value, jnp.ndarray):
                     setattr(self, attr, np.array(value))
-                else:
-                    logger.debug(f"Not list: {attr} -> {type(value)}")
 
             self.converted_to_numpy = True
 
