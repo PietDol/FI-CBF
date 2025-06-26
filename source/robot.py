@@ -3,6 +3,7 @@ from planners import AStarPlanner, CBFInfusedAStar
 from cbf_costmap import CBFCostmap
 from robot_cbf_config import RobotCBFConfig
 from visualization import VisualizeSimulation
+from confidence_manager import ConfidenceManager
 from loguru import logger
 from cbfpy import CBF
 import numpy as np
@@ -27,6 +28,7 @@ class Robot:
         cbf_switch_velocity_thres: float = None,
         cbf_switch_control_diff_thres: float = None,
         cbf_switch_nominal_control_mag: float = None,
+        cbf_confidence_config: dict = None,
         noise_cost_gain: float = 0.0,
         goal_tolerance: float = 0.1,
         Kp: float = 0.5,
@@ -42,6 +44,9 @@ class Robot:
             obstacles=obstacles,
         )
         self.cbf = CBF.from_config(self.cbf_config)
+
+        # create the confidence manager
+        self.confidence_manager = ConfidenceManager(cbf_confidence_config)
 
         # create perception module
         # we create the perception module with given sensors (not with random generation)
@@ -197,15 +202,32 @@ class Robot:
         else:
             return self._path[self._path_idx]
 
-    def pd_controller(self, target_pos: np.ndarray):
-        # TODO: maybe change controller? Check for jitter behavior
-        # subtract position and velocity from estimated state
+    def pd_controller(self, target_pos: np.ndarray, v_max: float = None):
         position = self.estimated_state[:2]
         velocity = self.estimated_state[2:]
 
         error = target_pos - position
-        damping = -self._Kd * velocity  # Damping term to reduce overshoot
+        damping = -self._Kd * velocity
         u = self._Kp * error + damping
+
+        # clip by maximum velocity
+        if v_max is not None:
+            u_before = u
+            # determine min and max control input
+            for i, v in enumerate(velocity):
+                if v < 0:
+                    u_min = -v_max - v
+                    u_max = v_max + v
+                elif v >= 0:
+                    u_min = -(v_max + v)
+                    u_max = v_max - v
+
+                logger.debug(f"{v_max}, {u}, {velocity}, {(u_min, u_max)}")
+                # clip the control input
+                u[i] = np.clip(u[i], u_min, u_max)
+                   
+            logger.debug(f"Comparison: {u_before} -> {u}")
+
         return np.clip(u, self._u_min_max[0], self._u_min_max[1])
 
     def check_goal_reached(self):
@@ -273,8 +295,14 @@ class Robot:
 
         # get control input and apply the safety filter
         target_pos = self.get_intermediate_position()
-        u_nominal = self.pd_controller(target_pos)
         noise = self.perception.get_perception_noise(self._true_state[2:])
+
+        # implementation of confidence manager
+        conf_level, vmax, k = self.confidence_manager.get_confidence_info(noise)
+
+        # calculate the nominal control
+        u_nominal = self.pd_controller(target_pos, vmax)
+
         if self._switch_active and self._cbf_switch_nominal_control_mag is not None:
             u_nominal = np.clip(
                 u_nominal,
@@ -315,6 +343,7 @@ class Robot:
         self.visualizer.data.u_cbf.append(u_cbf)
         self.visualizer.data.u_nominal.append(u_nominal)
         self.visualizer.data.safety_margin.append(safety_margin)
+        self.visualizer.data.noise.append(noise)
 
         # update the state of the system
         self._true_state[2:] += u_cbf

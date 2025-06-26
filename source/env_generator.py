@@ -357,6 +357,7 @@ class EnvGenerator:
             cbf_switch_velocity_thres=self.config.cbf_switch_velocity_thres,
             cbf_switch_control_diff_thres=self.config.cbf_switch_control_diff_thres,
             cbf_switch_nominal_control_mag=self.config.cbf_switch_nominal_control_mag,
+            cbf_confidence_config=self.config.cbf_confidence_config,
             control_fps=self.config.control_fps,
             state_estimation_fps=self.config.state_estimation_fps,
             goal_tolerance=self.config.goal_tolerance,
@@ -382,7 +383,7 @@ class EnvGenerator:
         robot, obstacles, sensors = self._generate_env_elements(loaded_env_dir)
 
         # this is the part where you can change things to see what happens, e.g. add sensors, change fps
-        # robot.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
+        robot.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
         # robot._state_esimation_dt = 1 / 30
         # robot._control_dt = 1 / 20
 
@@ -493,7 +494,7 @@ def main():
         costmap_size=np.array([20, 20]),
         grid_size=0.1,
         planner_mode="CBF infused A*",
-        noise_cost_gain=0.0,    # change for the cost to go through uncertain regions (5.0)
+        noise_cost_gain=0.0,  # change for the cost to go through uncertain regions (5.0)
         robot_width=1.0,
         robot_height=1.0,
         min_values_state=np.array([-10, -10, -1.5, -1.5]),
@@ -501,16 +502,22 @@ def main():
         min_sensor_noise=0.0,
         max_sensor_noise=0.1,
         magnitude_threshold=2.0,
-        cbf_state_uncertainty_mode="robust",    # probabilistic or robust
+        cbf_state_uncertainty_mode="robust",  # probabilistic or robust
         cbf_switch_velocity_thres=0.2,  # 0.2
-        cbf_switch_control_diff_thres=0.01, # 0.01
-        cbf_switch_nominal_control_mag=0.1, # 0.1
+        cbf_switch_control_diff_thres=0.01,  # 0.01
+        cbf_switch_nominal_control_mag=0.1,  # 0.1
+        cbf_confidence_config={
+            "vmax": [3.0, 2.0, 1.0],
+            "k": [4.0, 3.0, 2.0],
+            "sigma_thresholds": [0.03, 0.07],
+            "deltas": [0.01, 0.01], # with of the sigmoid belonging to the corresponding sigma
+        },
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
         Kp=0.5,
         Kd=0.1,
-        u_min_max=np.array([-1000, 1000])
+        u_min_max=np.array([-1000, 1000]),
     )
     # config = EnvGeneratorConfig.from_file("./runs/baseline_hard/env_config.json")
 
