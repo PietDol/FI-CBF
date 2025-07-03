@@ -55,6 +55,8 @@ class Robot:
             costmap_size=costmap_size,
             grid_size=grid_size,
             cbf=self.cbf,
+            env_dir=env_folder,
+            confidence_config=cbf_confidence_config,
             min_values_state=min_values_state,
             max_values_state=max_values_state,
             min_sensor_noise=min_sensor_noise,
@@ -62,13 +64,6 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
-        )
-
-        # to analyze the lipschitz constants
-        self.perception.analyze_lipschitz_grid(
-            num_points_per_dim_per_cell=4,
-            env_dir=env_folder,
-            save_histogram=False,
         )
 
         # create cbf costmap
@@ -293,6 +288,15 @@ class Robot:
             # add time to the visualizer
             self.visualizer.data.cbf_switch_active.append(self._t_control)
 
+    def calculate_reachable_set(self, v_max: float, noise: float):
+        # function to calculate the reachable set of the robot
+        # take 99.7% confidence interval (3 sigma around)
+        x_min = self._estimated_state[0] - 3 * noise - v_max * self._control_dt
+        x_max = self._estimated_state[0] + 3 * noise + v_max * self._control_dt
+        y_min = self._estimated_state[1] - 3 * noise - v_max * self._control_dt
+        y_max = self._estimated_state[1] + 3 * noise + v_max * self._control_dt
+        return np.array([[x_min, x_max], [y_min, y_max]])
+
     #########################################################
     # MAIN METHODS
     #########################################################
@@ -310,14 +314,20 @@ class Robot:
         # implementation of confidence manager
         conf_level, v_max, k = self.confidence_manager.get_confidence_info(noise)
 
+        # calculate the reachable set
+        reachable_set = self.calculate_reachable_set(v_max=v_max, noise=noise)
+
         # calculate the nominal control
         u_nominal = self.pd_controller(target_pos, v_max)
 
         # apply safety filter to the control input
         safety_margin = self.perception.calculate_safety_margin(
-            noise=noise, u_nominal=u_nominal, k=k
+            noise=noise,
+            u_nominal=u_nominal,
+            k=k,
+            reachable_set=reachable_set,
+            confidence_level=conf_level,
         )
-        # logger.debug(f"{conf_level}, {v_max}, {k}")
         u_cbf = self.cbf.safety_filter(self._estimated_state, u_nominal, safety_margin)
 
         # check whether to activate the switch

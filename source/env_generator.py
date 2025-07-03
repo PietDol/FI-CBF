@@ -508,6 +508,7 @@ def main():
         cbf_switch_control_diff_thres=0.01,  # 0.01
         cbf_switch_nominal_control_mag=0.1,  # 0.1
         cbf_confidence_config={
+            "levels": [1, 2, 3],
             "vmax": [1.5, 1.0, 0.5],
             "k": [4.0, 3.0, 2.0],
             "sigma_thresholds": [0.03, 0.07],

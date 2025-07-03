@@ -44,6 +44,8 @@ class Perception:
         costmap_size: np.ndarray,
         grid_size: np.ndarray,
         cbf: CBF,
+        env_dir: str,
+        confidence_config: dict,
         min_values_state: np.ndarray,
         max_values_state: np.ndarray,
         max_sensor_noise: float,
@@ -67,6 +69,24 @@ class Perception:
         self.L_Lfh, self.L_Lgh = self._estimate_cbf_lipschitz_constants(
             num_samples_per_dim
         )
+        self.L_Lfh_grids, self.L_Lgh_grids = {}, {}
+        for i in range(len(confidence_config["levels"])):
+            v_max = confidence_config["vmax"][i]
+            _min_values_state = np.array(
+                [min_values_state[0], min_values_state[1], -v_max, -v_max]
+            )
+            _max_values_state = np.array(
+                [max_values_state[0], max_values_state[1], v_max, v_max]
+            )
+            L_Lfh_grids, L_Lgh_grids = self.analyze_lipschitz_grid(
+                min_values_state=_min_values_state,
+                max_values_state=_max_values_state,
+                num_points_per_dim_per_cell=num_samples_per_dim,
+                env_dir=env_dir,
+                save_histogram=False,
+            )
+            self.L_Lfh_grids[f"{i}"] = L_Lfh_grids
+            self.L_Lgh_grids[f"{i}"] = L_Lgh_grids
 
         # create the sensors if not given
         self.sensors = sensors
@@ -172,7 +192,9 @@ class Perception:
         epsilon = k * noise
         return epsilon
 
-    def calculate_safety_margin(self, noise: float, u_nominal: np.ndarray, k: float):
+    def calculate_safety_margin(
+        self, noise: float, u_nominal: np.ndarray, k: float, reachable_set: np.ndarray, confidence_level: int,
+    ):
         # Converts the uncertainty to the safety margin that needs to be used by the CBFs to
         # account for estimation uncertainty. Epsilon is upper bound on estimation error
         # Assume alpha(h) = h, so L_alpha_h = 1
@@ -181,18 +203,56 @@ class Perception:
         # calculate epsilon in the paper they use eps=0.4
         epsilon = self.get_epsilon(noise, k)
 
+        # calculate the lipschitz constants based on the grid
+        # get the indices of the grid
+        indices = []
+        origin_offset = np.array(self.costmap_size) / 2
+        for x in reachable_set[0]:
+            for y in reachable_set[1]:
+                grid = np.floor((np.array([x, y]) + origin_offset)).astype(int)
+                indices.append(grid[::-1])
+        indices = np.array(indices)  # (4, 2)
+
+        # calculate the range of the indices
+        row_min, col_min = np.amin(indices, axis=0)
+        row_max, col_max = np.amax(indices, axis=0)
+        rows = np.arange(row_min, row_max + 1)  # +1 because the stop must be included
+        cols = np.arange(col_min, col_max + 1)  # +1 because the stop must be included
+
+        # get the lipschitz values from the grid
+        # for now tak 90% percentile
+        L_Lfhs, L_Lghs = [], []
+        for i in rows:
+            for j in cols:
+                L_Lfhs.append(self.L_Lfh_grids[f"{confidence_level}"]["80"][i, j])
+                L_Lghs.append(self.L_Lgh_grids[f"{confidence_level}"]["80"][i, j])
+        L_Lfh = np.amax(np.array(L_Lfhs), axis=0)
+        L_Lgh = np.amax(np.array(L_Lghs), axis=0)
+
+        # log for debugging now
+        logger.debug(f"L_Lfh: {self.L_Lfh} -> {L_Lfh}")
+        logger.debug(f"L_Lgh: {self.L_Lgh} -> {L_Lgh}")
+
         # calculate the safety margin
         a = (self.L_Lfh + L_alpha_h) * epsilon
         b = self.L_Lgh * epsilon
         safety_margin = a + b * jnp.linalg.norm(u_nominal)
+
+        # calculate the new safety margin
+        a_new = (L_Lfh + L_alpha_h) * epsilon
+        b_new = L_Lgh * epsilon
+        safety_margin_new = a_new + b_new * jnp.linalg.norm(u_nominal)
+        logger.debug(f"Safety margin: {safety_margin} -> {safety_margin_new}")
         return safety_margin
 
     def analyze_lipschitz_grid(
         self,
+        min_values_state: np.ndarray,
+        max_values_state: np.ndarray,
         num_points_per_dim_per_cell: int,
         env_dir: str,
         save_histogram: bool = False,
-    ):  
+    ):
         # set some important parameters
         num_barriers = self.cbf.num_cbf
         cell_grid = self.costmap_size
@@ -202,14 +262,14 @@ class Perception:
 
         # create linspaces
         x_domain = np.linspace(
-            self.min_values_state[0], self.max_values_state[0], cell_grid[0] + 1
+            min_values_state[0], max_values_state[0], cell_grid[0] + 1
         )
         y_domain = np.linspace(
-            self.min_values_state[1], self.max_values_state[1], cell_grid[1] + 1
+            min_values_state[1], max_values_state[1], cell_grid[1] + 1
         )
 
         # create grids
-        percentiles = ["80", "85", "90", "95", "100"]
+        percentiles = ["80", "90", "95", "100"]
         L_Lfh_grid, L_Lgh_grid = {}, {}
         for percentile in percentiles:
             L_Lfh_grid[percentile] = np.zeros(
@@ -226,16 +286,16 @@ class Perception:
                     [
                         x_domain[i],
                         y_domain[j],
-                        self.min_values_state[2],
-                        self.min_values_state[3],
+                        min_values_state[2],
+                        min_values_state[3],
                     ]
                 )
                 max_values = np.array(
                     [
                         x_domain[i + 1],
                         y_domain[j + 1],
-                        self.max_values_state[2],
-                        self.max_values_state[3],
+                        max_values_state[2],
+                        max_values_state[3],
                     ]
                 )
 
@@ -299,11 +359,11 @@ class Perception:
         for key in L_Lfh_grid.keys():
             # save the grids
             np.save(
-                f"{env_dir}/lipschitz_constants_grid/L_Lfh_grid_{key}.npy",
+                f"{env_dir}/lipschitz_constants_grid/L_Lfh_grid_{key}_{max_values_state[2]}.npy",
                 L_Lfh_grid[key],
             )
             np.save(
-                f"{env_dir}/lipschitz_constants_grid/L_Lgh_grid_{key}.npy",
+                f"{env_dir}/lipschitz_constants_grid/L_Lgh_grid_{key}_{max_values_state[2]}.npy",
                 L_Lgh_grid[key],
             )
 
@@ -369,9 +429,11 @@ class Perception:
                         )
 
             plt.tight_layout()
-            plt.savefig(f"{env_dir}/lipschitz_constants_grid/grid_{key}.png")
+            plt.savefig(
+                f"{env_dir}/lipschitz_constants_grid/grid_{key}_{max_values_state[2]}.png"
+            )
             logger.success(
-                f"Grid for {key}% percentile saved: {env_dir}/lipschitz_constants_grid/grid_{key}.png"
+                f"Grid for {key}% percentile saved: {env_dir}/lipschitz_constants_grid/grid_{key}_{max_values_state[2]}.png"
             )
         return L_Lfh_grid, L_Lgh_grid
 
