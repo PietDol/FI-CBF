@@ -43,7 +43,7 @@ class EnvGenerator:
         except FileExistsError:
             logger.error(f"Directory already exists: {self.config.work_dir}")
             logger.info("Try similar forlder name")
-            for i in range(10):
+            for i in range(100):
                 try:
                     new_work_dir = f"{self.config.work_dir}_{i+1}"
                     os.makedirs(f"{new_work_dir}/simulation_results", exist_ok=False)
@@ -297,7 +297,7 @@ class EnvGenerator:
         )
         return []
 
-    def _generate_env_elements(self, loaded_env_dir: str = None):
+    def _generate_env_elements(self, loaded_env_dir: str = None, env_folder: str = None):
         if loaded_env_dir is None:
             # generate the robot object
             robot_x = np.round(random.uniform(-self.x_range, self.x_range), 2)
@@ -367,6 +367,7 @@ class EnvGenerator:
             initial_state=initial_state,
             sensors=sensors,
             obstacles=obstacles,
+            env_folder=env_folder,
         )
 
         # add robot to obstacles
@@ -380,10 +381,10 @@ class EnvGenerator:
 
     @logger.catch
     def _run_env(self, env_folder, loaded_env_dir=None):
-        robot, obstacles, sensors = self._generate_env_elements(loaded_env_dir)
+        robot, obstacles, sensors = self._generate_env_elements(loaded_env_dir, env_folder)
 
         # this is the part where you can change things to see what happens, e.g. add sensors, change fps
-        robot.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
+        # robot.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
         # robot._state_esimation_dt = 1 / 30
         # robot._control_dt = 1 / 20
 
@@ -507,7 +508,7 @@ def main():
         cbf_switch_control_diff_thres=0.01,  # 0.01
         cbf_switch_nominal_control_mag=0.1,  # 0.1
         cbf_confidence_config={
-            "vmax": [3.0, 2.0, 1.0],
+            "vmax": [1.5, 1.0, 0.5],
             "k": [4.0, 3.0, 2.0],
             "sigma_thresholds": [0.03, 0.07],
             "deltas": [0.01, 0.01], # with of the sigmoid belonging to the corresponding sigma
@@ -515,8 +516,8 @@ def main():
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
-        Kp=0.5,
-        Kd=0.1,
+        Kp=0.5, # 0.5
+        Kd=0.2, # 0.1
         u_min_max=np.array([-1000, 1000]),
     )
     # config = EnvGeneratorConfig.from_file("./runs/baseline_hard/env_config.json")
@@ -528,10 +529,11 @@ def main():
     envs = EnvGenerator(config=config)
 
     # apply same environment for debugging
-    envs.run_env_from_file(
-        env_file="./runs/baseline_small_gap/simulation_results/loaded_env/env_data.json",
-        env_folder="loaded_env",
-    )
+    for i in range(1):
+        envs.run_env_from_file(
+            env_file="./runs/experiment/simulation_results/loaded_env/env_data.json",
+            env_folder=f"loaded_env_{i}",
+        )
 
     # apply the simulations
     # envs()

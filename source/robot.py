@@ -37,6 +37,7 @@ class Robot:
         initial_state: np.ndarray = np.zeros(4),
         sensors: list = None,
         obstacles: list = None,
+        env_folder: str = None,
     ):
         # this class represents the robot
         # create cbf object
@@ -59,7 +60,15 @@ class Robot:
             min_sensor_noise=min_sensor_noise,
             max_sensor_noise=max_sensor_noise,
             magnitude_threshold=magnitude_threshold,
+            num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
+        )
+
+        # to analyze the lipschitz constants
+        self.perception.analyze_lipschitz_grid(
+            num_points_per_dim_per_cell=4,
+            env_dir=env_folder,
+            save_histogram=False,
         )
 
         # create cbf costmap
@@ -203,6 +212,7 @@ class Robot:
             return self._path[self._path_idx]
 
     def pd_controller(self, target_pos: np.ndarray, v_max: float = None):
+        # if v_max is given,
         position = self.estimated_state[:2]
         velocity = self.estimated_state[2:]
 
@@ -212,7 +222,6 @@ class Robot:
 
         # clip by maximum velocity
         if v_max is not None:
-            u_before = u
             # determine min and max control input
             for i, v in enumerate(velocity):
                 if v < 0:
@@ -222,12 +231,10 @@ class Robot:
                     u_min = -(v_max + v)
                     u_max = v_max - v
 
-                logger.debug(f"{v_max}, {u}, {velocity}, {(u_min, u_max)}")
                 # clip the control input
                 u[i] = np.clip(u[i], u_min, u_max)
-                   
-            logger.debug(f"Comparison: {u_before} -> {u}")
 
+        # clip based predefined min and max set by the user
         return np.clip(u, self._u_min_max[0], self._u_min_max[1])
 
     def check_goal_reached(self):
@@ -258,10 +265,13 @@ class Robot:
 
     def activate_switch(self, u_nominal, u_cbf):
         # method to check whether the switch should be active
-        if self._cbf_switch_control_diff_thres is None or self._cbf_switch_velocity_thres is None:
+        if (
+            self._cbf_switch_control_diff_thres is None
+            or self._cbf_switch_velocity_thres is None
+        ):
             self._switch_active = False
             return
-        
+
         if self._switch_active and (
             np.all(np.abs(u_nominal - u_cbf) <= self._cbf_switch_control_diff_thres)
             and np.all(self._estimated_state[2:] >= self._cbf_switch_velocity_thres)
@@ -298,34 +308,20 @@ class Robot:
         noise = self.perception.get_perception_noise(self._true_state[2:])
 
         # implementation of confidence manager
-        conf_level, vmax, k = self.confidence_manager.get_confidence_info(noise)
+        conf_level, v_max, k = self.confidence_manager.get_confidence_info(noise)
 
         # calculate the nominal control
-        u_nominal = self.pd_controller(target_pos, vmax)
+        u_nominal = self.pd_controller(target_pos, v_max)
 
-        if self._switch_active and self._cbf_switch_nominal_control_mag is not None:
-            u_nominal = np.clip(
-                u_nominal,
-                -self._cbf_switch_nominal_control_mag,
-                self._cbf_switch_nominal_control_mag,
-            )
-            safety_margin = self.perception.calculate_safety_margin(
-                noise=noise, u_nominal=u_nominal, mode="probabilistic"
-            )
-        elif (
-            not self._switch_active and self._cbf_switch_nominal_control_mag is not None
-        ):
-            safety_margin = self.perception.calculate_safety_margin(
-                noise=noise, u_nominal=u_nominal, mode="robust"
-            )
-        else:
-            safety_margin = self.perception.calculate_safety_margin(
-                noise=noise, u_nominal=u_nominal, mode=self._cbf_state_uncertainty_mode
-            )
+        # apply safety filter to the control input
+        safety_margin = self.perception.calculate_safety_margin(
+            noise=noise, u_nominal=u_nominal, k=k
+        )
+        # logger.debug(f"{conf_level}, {v_max}, {k}")
         u_cbf = self.cbf.safety_filter(self._estimated_state, u_nominal, safety_margin)
 
         # check whether to activate the switch
-        self.activate_switch(u_nominal, u_cbf)
+        # self.activate_switch(u_nominal, u_cbf)
 
         # add data to visualizer
         h_true = self.cbf_config.alpha(
@@ -338,16 +334,23 @@ class Robot:
             self.cbf_config.h_1(self._estimated_state, safety_margin)
         )
         self.visualizer.data.h_estimated.append(np.array(h_estimated))
-        # self.visualizer.data.robot_pos.append(self._true_state[:2])
-        # self.visualizer.data.robot_vel.append(self._true_state[2:])
         self.visualizer.data.u_cbf.append(u_cbf)
         self.visualizer.data.u_nominal.append(u_nominal)
         self.visualizer.data.safety_margin.append(safety_margin)
         self.visualizer.data.noise.append(noise)
+        self.visualizer.data.v_max.append(v_max)
+        self.visualizer.data.k.append(k)
 
         # update the state of the system
         self._true_state[2:] += u_cbf
         self._true_state[:2] += self._true_state[2:] * self._control_dt
+
+        # check for velocity
+        if np.any(self._true_state[2:] > v_max + 1e-5) or np.any(
+            self._true_state[2:] < -v_max - 1e-5
+        ):
+            logger.error(f"Maximum velocity exceeded ({v_max}): {self._true_state[2:]}")
+            logger.debug(f"Control inputs: {u_nominal}, {u_cbf}")
 
     def state_estimation_update(self):
         # method to get the state estimation of the robot

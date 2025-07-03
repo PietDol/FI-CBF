@@ -26,8 +26,10 @@ class VisualizationData:
         self.cbf_switch_deactive = []
         self.control_time = []
         self.state_estimation_time = []
+        self.k = []
+        self.v_max = []
         self.converted_to_numpy = False
-    
+
     @classmethod
     def from_directory(cls, dir_path):
         instance = cls()
@@ -35,7 +37,7 @@ class VisualizationData:
             file_path = os.path.join(dir_path, f"simulation_data/{attr}.npy")
             if os.path.isfile(file_path):
                 setattr(instance, attr, np.load(file_path, allow_pickle=True))
-            elif not os.path.isfile(file_path) and attr != 'converted_to_numpy': 
+            elif not os.path.isfile(file_path) and attr != "converted_to_numpy":
                 logger.warning(f"No data for {attr}")
         instance.converted_to_numpy = True
         logger.success(f"Visualization data loaded from {dir_path}/simulation_data")
@@ -78,6 +80,9 @@ class VisualizeSimulation:
         # clear the data dictionary
         self.data = VisualizationData()
 
+    #######################################################################
+    # Row 1
+    #######################################################################
     def plot_state(self, axes):
         # this function converts the axes to plots for the state
         t_estimate = self.data.state_estimation_time
@@ -122,6 +127,9 @@ class VisualizeSimulation:
 
         return axes
 
+    #######################################################################
+    # Row 2
+    #######################################################################
     def plot_control_input(self, axes):
         # this function converts a list of axes to a list of figures with the control inputs over time
         u_nominal = self.data.u_nominal
@@ -169,6 +177,30 @@ class VisualizeSimulation:
         ax.set_ylabel("Noise")
         ax.grid(True)
         return ax
+    
+    def plot_k(self, ax):
+        # function to plot the k over time
+        t_control = self.data.control_time
+        k = self.data.k
+        ax.plot(t_control, k)
+        ax.set_ylim(0.0, max(k)+0.5)
+        ax.set_title(f"k over time")
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel("k [-]")
+        ax.grid(True)
+        return ax
+    
+    def plot_v_max(self, ax):
+        # function to plot the v_max over time
+        t_control = self.data.control_time
+        v_max = self.data.v_max
+        ax.plot(t_control, v_max)
+        ax.set_ylim(0.0, max(v_max)+0.5)
+        ax.set_title(f"v_max over time")
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel("v_max [m/s]")
+        ax.grid(True)
+        return ax
 
     def plot_safety_margin(self, ax):
         # function to plot the safety margin over time
@@ -199,6 +231,9 @@ class VisualizeSimulation:
         ax.grid(True)
         return ax
 
+    #######################################################################
+    # Row 3
+    #######################################################################
     def plot_cbf(self, axes):
         # converts a list of axes to figures with the value of the cbf over time
         h_true = self.data.h_true
@@ -234,6 +269,9 @@ class VisualizeSimulation:
 
         return axes  # Return the modified axes
 
+    #######################################################################
+    # Row 3
+    #######################################################################
     def plot_distance_costmap(self, ax, planner):
         # get all the data
         costmap = planner.costmap
@@ -476,8 +514,8 @@ class VisualizeSimulation:
         # function save figure if there is a filename
         num_colom_state = self.data.robot_pos.shape[1] + self.data.robot_vel.shape[1]
         num_coloms_control = (
-            self.data.u_nominal.shape[1] + 2
-        )  # +2 for the safety margin and noises
+            self.data.u_nominal.shape[1] + 4
+        )  # +4 for the safety margin, noise, k and v_max
         num_colom_cbfs = self.data.h_true.shape[1]
         num_costmaps = 5
 
@@ -509,7 +547,9 @@ class VisualizeSimulation:
 
         # Row 1: Plot control input (single subplot spanning all columns)
         self.plot_control_input(axes=axes[1])
-        self.plot_noise(ax=axes[1][num_coloms_control - 2])
+        self.plot_noise(ax=axes[1][num_coloms_control - 4])
+        self.plot_k(ax=axes[1][num_coloms_control - 3])
+        self.plot_v_max(ax=axes[1][num_coloms_control - 2])
         self.plot_safety_margin(ax=axes[1][num_coloms_control - 1])
 
         # remove unused subplots

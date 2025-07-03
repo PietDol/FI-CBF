@@ -2,8 +2,13 @@
 import numpy as np
 from cbfpy import CBF
 from loguru import logger
+import os
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
+from itertools import product
+from tqdm import tqdm
+import sys
 
 
 class Sensor:
@@ -55,8 +60,8 @@ class Perception:
         self.min_sensor_noise = min_sensor_noise
         self.magnitude_threshold = magnitude_threshold
 
-        # parameters for the sigmoid function to convert magnitude to noise
-        self.alpha = 0.8  # value for hybrid approach between max and mean
+        # debug: if true plots are shown of lipschitz distribution
+        self.debug = False
 
         # estimate the lipschitz constants
         self.L_Lfh, self.L_Lgh = self._estimate_cbf_lipschitz_constants(
@@ -162,43 +167,223 @@ class Perception:
         )
         return grid  # (num_points_per_dim^d, state_space_dimensions)
 
-    def get_epsilon(self, noise: float, mode: str):
-        # calculate the value of epsilon based on the value of the noise and the mode
-        if mode == "robust":
-            epsilon = 4 * noise
-        elif mode == "probabilistic":
-            epsilon = 1.96 * noise
-        else:
-            logger.error(
-                f"Unknown mode '{mode}' Supported modes: 'robust', 'probabilistic'"
-            )
-            logger.info("Use robust mode.")
-            epsilon = 4 * noise
+    def get_epsilon(self, noise: float, k: float):
+        # calculate the value of epsilon based on the values of the noise and k
+        epsilon = k * noise
         return epsilon
 
-    def calculate_safety_margin(
-        self, noise: float, u_nominal: np.ndarray, mode: str = "robust"
-    ):
+    def calculate_safety_margin(self, noise: float, u_nominal: np.ndarray, k: float):
         # Converts the uncertainty to the safety margin that needs to be used by the CBFs to
         # account for estimation uncertainty. Epsilon is upper bound on estimation error
         # Assume alpha(h) = h, so L_alpha_h = 1
         L_alpha_h = 1.0
 
         # calculate epsilon in the paper they use eps=0.4
-        epsilon = self.get_epsilon(noise, mode)
+        epsilon = self.get_epsilon(noise, k)
 
         # calculate the safety margin
         a = (self.L_Lfh + L_alpha_h) * epsilon
         b = self.L_Lgh * epsilon
-        safety_margin = a + b * jnp.linalg.norm(u_nominal) ** 2
+        safety_margin = a + b * jnp.linalg.norm(u_nominal)
         return safety_margin
 
-    def _estimate_cbf_lipschitz_constants(self, num_points_per_dim: int):
-        Z = self.create_grid_samples(
-            min_vals=self.min_values_state,
-            max_vals=self.max_values_state,
-            num_points_per_dim=num_points_per_dim,
+    def analyze_lipschitz_grid(
+        self,
+        num_points_per_dim_per_cell: int,
+        env_dir: str,
+        save_histogram: bool = False,
+    ):  
+        # set some important parameters
+        num_barriers = self.cbf.num_cbf
+        cell_grid = self.costmap_size
+
+        # create dir to save the values
+        os.makedirs(f"{env_dir}/lipschitz_constants_grid", exist_ok=True)
+
+        # create linspaces
+        x_domain = np.linspace(
+            self.min_values_state[0], self.max_values_state[0], cell_grid[0] + 1
         )
+        y_domain = np.linspace(
+            self.min_values_state[1], self.max_values_state[1], cell_grid[1] + 1
+        )
+
+        # create grids
+        percentiles = ["80", "85", "90", "95", "100"]
+        L_Lfh_grid, L_Lgh_grid = {}, {}
+        for percentile in percentiles:
+            L_Lfh_grid[percentile] = np.zeros(
+                (cell_grid[1], cell_grid[0], num_barriers)
+            )
+            L_Lgh_grid[percentile] = np.zeros(
+                (cell_grid[1], cell_grid[0], num_barriers)
+            )
+
+        # iterate over all the cells
+        for i in tqdm(range(len(x_domain) - 1), desc="Calculate Lipschitz for grid"):
+            for j in range(len(y_domain) - 1):
+                min_values = np.array(
+                    [
+                        x_domain[i],
+                        y_domain[j],
+                        self.min_values_state[2],
+                        self.min_values_state[3],
+                    ]
+                )
+                max_values = np.array(
+                    [
+                        x_domain[i + 1],
+                        y_domain[j + 1],
+                        self.max_values_state[2],
+                        self.max_values_state[3],
+                    ]
+                )
+
+                # generate grid for this cell
+                Z = self.create_grid_samples(
+                    min_values, max_values, num_points_per_dim_per_cell
+                )
+
+                # estimate Lipschitz values for this batch
+                L_Lfhs, L_Lghs = self._estimate_cbf_lipschitz_constants(
+                    Z=Z, analyze=True
+                )
+                L_Lfhs = np.array(L_Lfhs)
+                L_Lghs = np.array(L_Lghs)
+
+                # fill histograms
+                if save_histogram:
+                    fig, axes = plt.subplots(2, num_barriers, figsize=(12, 6))
+                    for k in range(num_barriers):  # for each barrier function
+                        # create the histograms
+                        axes[0, k].hist(
+                            L_Lfhs[k, :], bins=40, color="steelblue", edgecolor="black"
+                        )
+                        axes[0, k].set_title(
+                            f"Lipschitz value distribution for Lfh[{k}] (num_points={L_Lfhs.shape[1]})"
+                        )
+                        axes[0, k].set_xlabel("Lfh value")
+                        axes[0, k].set_ylabel("Frequency")
+                        axes[0, k].grid(True)
+
+                        axes[1, k].hist(
+                            L_Lghs[k, :], bins=40, color="darkorange", edgecolor="black"
+                        )
+                        axes[1, k].set_title(
+                            f"Lipschitz value distribution for Lgh[{k}] (num_points={L_Lghs.shape[1]})"
+                        )
+                        axes[1, k].set_xlabel("Lgh value")
+                        axes[1, k].set_ylabel("Frequency")
+                        axes[1, k].grid(True)
+
+                    plt.tight_layout()
+                    plt.savefig(
+                        f"{env_dir}/lipschitz_constants_grid/lipschitz_constants_{i}_{j}.png"
+                    )
+                    plt.close()
+
+                # update the grids
+                for key in L_Lfh_grid.keys():
+                    if key == "100":
+                        L_Lfh_grid[key][j, i] = np.amax(L_Lfhs, axis=1)
+                        L_Lgh_grid[key][j, i] = np.amax(L_Lghs, axis=1)
+                    else:
+                        L_Lfh_grid[key][j, i] = np.percentile(
+                            L_Lfhs, float(key), axis=1
+                        )
+                        L_Lgh_grid[key][j, i] = np.percentile(
+                            L_Lghs, float(key), axis=1
+                        )
+
+        # iterate over the grids
+        for key in L_Lfh_grid.keys():
+            # save the grids
+            np.save(
+                f"{env_dir}/lipschitz_constants_grid/L_Lfh_grid_{key}.npy",
+                L_Lfh_grid[key],
+            )
+            np.save(
+                f"{env_dir}/lipschitz_constants_grid/L_Lgh_grid_{key}.npy",
+                L_Lgh_grid[key],
+            )
+
+            # plot the grids
+            fig, axes = plt.subplots(2, num_barriers, figsize=(12, 10))
+            extent = [x_domain[0], x_domain[-1], y_domain[0], y_domain[-1]]
+            for i in range(num_barriers):
+                # L_Lfh
+                im1 = axes[0, i].imshow(
+                    L_Lfh_grid[key][:, :, i],
+                    origin="lower",
+                    extent=extent,
+                    cmap="Blues",
+                )
+                axes[0, i].set_title(f"L_Lfh {key}% percentile grid [Barrier {i}]")
+                axes[0, i].grid(True)
+                axes[0, i].axis("equal")
+                fig.colorbar(im1, ax=axes[0, i])
+
+                # annotate each cell with the max value
+                for xi in range(cell_grid[1]):
+                    for yi in range(cell_grid[0]):
+                        # Get center of cell
+                        x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
+                        y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
+                        val = L_Lfh_grid[key][yi, xi, i]
+                        axes[0, i].text(
+                            x_mid,
+                            y_mid,
+                            f"{val:.2f}",
+                            color="black",
+                            ha="center",
+                            va="center",
+                            fontsize=5,
+                        )
+
+                # L_Lgh
+                im2 = axes[1, i].imshow(
+                    L_Lgh_grid[key][:, :, i],
+                    origin="lower",
+                    extent=extent,
+                    cmap="Oranges",
+                )
+                axes[1, i].set_title(f"L_Lgh {key}% percentile grid [Barrier {i}]")
+                axes[1, i].grid(True)
+                axes[1, i].axis("equal")
+                fig.colorbar(im2, ax=axes[1, i])
+
+                # annotate each cell with the max value
+                for xi in range(cell_grid[1]):
+                    for yi in range(cell_grid[0]):
+                        x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
+                        y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
+                        val = L_Lgh_grid[key][yi, xi, i]
+                        axes[1, i].text(
+                            x_mid,
+                            y_mid,
+                            f"{val:.2f}",
+                            color="black",
+                            ha="center",
+                            va="center",
+                            fontsize=5,
+                        )
+
+            plt.tight_layout()
+            plt.savefig(f"{env_dir}/lipschitz_constants_grid/grid_{key}.png")
+            logger.success(
+                f"Grid for {key}% percentile saved: {env_dir}/lipschitz_constants_grid/grid_{key}.png"
+            )
+        return L_Lfh_grid, L_Lgh_grid
+
+    def _estimate_cbf_lipschitz_constants(
+        self, num_points_per_dim: int = None, Z=None, analyze=False
+    ):
+        if Z is None:
+            Z = self.create_grid_samples(
+                min_vals=self.min_values_state,
+                max_vals=self.max_values_state,
+                num_points_per_dim=num_points_per_dim,
+            )
 
         # K is the number of barrier functions
         # m is the size of the controller
@@ -227,7 +412,28 @@ class Perception:
                     lipschitz_matrix, nan=0.0, posinf=0.0, neginf=0.0
                 )
 
-                lipschitz_per_output.append(jnp.max(jnp.triu(lipschitz_matrix, k=1)))
+                # visualize the distribution via a histogram
+                if self.debug:
+                    flat_values = jnp.triu(lipschitz_matrix, k=1).flatten()
+                    plt.figure(figsize=(6, 4))
+                    plt.hist(flat_values, bins=30, color="steelblue", edgecolor="black")
+                    plt.title(f"Lipschitz value distribution for Lfh[{k}]")
+                    plt.xlabel("Lipschitz estimate")
+                    plt.ylabel("Frequency")
+                    plt.grid(True)
+                    plt.tight_layout()
+                    plt.show()
+
+                if analyze:
+                    # add flat values
+                    lipschitz_per_output.append(
+                        jnp.triu(lipschitz_matrix, k=1).flatten()
+                    )
+                else:
+                    # add max value
+                    lipschitz_per_output.append(
+                        jnp.max(jnp.triu(lipschitz_matrix, k=1))
+                    )
 
             return jnp.array(lipschitz_per_output)
 
@@ -250,15 +456,40 @@ class Perception:
                     lipschitz_matrix, nan=0.0, posinf=0.0, neginf=0.0
                 )
 
-                lipschitz_per_barrier.append(jnp.max(jnp.triu(lipschitz_matrix, k=1)))
+                # visualize distribution with a histogram
+                if self.debug:
+                    flat_values = jnp.triu(lipschitz_matrix, k=1).flatten()
+                    plt.figure(figsize=(6, 4))
+                    plt.hist(
+                        flat_values, bins=30, color="darkorange", edgecolor="black"
+                    )
+                    plt.title(f"Lipschitz value distribution for Lgh[{k}]")
+                    plt.xlabel("Lipschitz estimate")
+                    plt.ylabel("Frequency")
+                    plt.grid(True)
+                    plt.tight_layout()
+                    plt.show()
+
+                if analyze:
+                    # add flat values
+                    lipschitz_per_barrier.append(
+                        jnp.triu(lipschitz_matrix, k=1).flatten()
+                    )
+                else:
+                    # add max value
+                    lipschitz_per_barrier.append(
+                        jnp.max(jnp.triu(lipschitz_matrix, k=1))
+                    )
 
             return jnp.array(lipschitz_per_barrier)
 
-        L_Lfh = estimate_lipschitz_scalar(Lfhs, Z)  # (K,)
-        L_Lgh = estimate_lipschitz_vector(Lghs, Z)  # (K,)
+        L_Lfh = estimate_lipschitz_scalar(Lfhs, Z)  # * 0.3  # (K,)
+        L_Lgh = estimate_lipschitz_vector(Lghs, Z)  # * 0.3  # (K,)
 
-        logger.info(f"L_Lfh per barrier: {L_Lfh}")
-        logger.info(f"L_Lgh per barrier: {L_Lgh}")
+        # only print if we are not analyzing
+        if not analyze:
+            logger.info(f"L_Lfh per barrier: {L_Lfh}")
+            logger.info(f"L_Lgh per barrier: {L_Lgh}")
 
         return np.array(L_Lfh), np.array(L_Lgh)
 
