@@ -62,13 +62,7 @@ class Perception:
         self.min_sensor_noise = min_sensor_noise
         self.magnitude_threshold = magnitude_threshold
 
-        # debug: if true plots are shown of lipschitz distribution
-        self.debug = False
-
-        # estimate the lipschitz constants
-        self.L_Lfh, self.L_Lgh = self._estimate_cbf_lipschitz_constants(
-            num_samples_per_dim
-        )
+        # estimate the lipschitz constants for the grid
         self.L_Lfh_grids, self.L_Lgh_grids = {}, {}
         for i in range(len(confidence_config["levels"])):
             v_max = confidence_config["vmax"][i]
@@ -229,20 +223,10 @@ class Perception:
         L_Lfh = np.amax(np.array(L_Lfhs), axis=0)
         L_Lgh = np.amax(np.array(L_Lghs), axis=0)
 
-        # log for debugging now
-        logger.debug(f"L_Lfh: {self.L_Lfh} -> {L_Lfh}")
-        logger.debug(f"L_Lgh: {self.L_Lgh} -> {L_Lgh}")
-
-        # calculate the safety margin
-        a = (self.L_Lfh + L_alpha_h) * epsilon
-        b = self.L_Lgh * epsilon
-        safety_margin = a + b * jnp.linalg.norm(u_nominal)
-
         # calculate the new safety margin
-        a_new = (L_Lfh + L_alpha_h) * epsilon
-        b_new = L_Lgh * epsilon
-        safety_margin_new = a_new + b_new * jnp.linalg.norm(u_nominal)
-        logger.debug(f"Safety margin: {safety_margin} -> {safety_margin_new}")
+        a = (L_Lfh + L_alpha_h) * epsilon
+        b = L_Lgh * epsilon
+        safety_margin = a + b * jnp.linalg.norm(u_nominal)
         return safety_margin
 
     def analyze_lipschitz_grid(
@@ -474,18 +458,6 @@ class Perception:
                     lipschitz_matrix, nan=0.0, posinf=0.0, neginf=0.0
                 )
 
-                # visualize the distribution via a histogram
-                if self.debug:
-                    flat_values = jnp.triu(lipschitz_matrix, k=1).flatten()
-                    plt.figure(figsize=(6, 4))
-                    plt.hist(flat_values, bins=30, color="steelblue", edgecolor="black")
-                    plt.title(f"Lipschitz value distribution for Lfh[{k}]")
-                    plt.xlabel("Lipschitz estimate")
-                    plt.ylabel("Frequency")
-                    plt.grid(True)
-                    plt.tight_layout()
-                    plt.show()
-
                 if analyze:
                     # add flat values
                     lipschitz_per_output.append(
@@ -518,20 +490,7 @@ class Perception:
                     lipschitz_matrix, nan=0.0, posinf=0.0, neginf=0.0
                 )
 
-                # visualize distribution with a histogram
-                if self.debug:
-                    flat_values = jnp.triu(lipschitz_matrix, k=1).flatten()
-                    plt.figure(figsize=(6, 4))
-                    plt.hist(
-                        flat_values, bins=30, color="darkorange", edgecolor="black"
-                    )
-                    plt.title(f"Lipschitz value distribution for Lgh[{k}]")
-                    plt.xlabel("Lipschitz estimate")
-                    plt.ylabel("Frequency")
-                    plt.grid(True)
-                    plt.tight_layout()
-                    plt.show()
-
+                # return output based on mode
                 if analyze:
                     # add flat values
                     lipschitz_per_barrier.append(
