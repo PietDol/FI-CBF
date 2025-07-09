@@ -1,0 +1,87 @@
+2025-07-04 11:56:34.329 | INFO     | __main__:__init__:25 - New simulation is started!
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - number_of_simulations: 1
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - max_duration_of_simulation: 20
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - min_goal_distance: 15
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - work_dir: ./runs/debug
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - costmap_size: [20 20]
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - robot_width: 1.0
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - robot_height: 1.0
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - min_number_of_obstacles: 5
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - max_number_of_obstacles: 10
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - max_obstacle_size: {'circle': 3.0, 'rectangle': [3.0, 3.0]}
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - planner_mode: CBF infused A*
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - planner_alpha: 0.0
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - min_values_state: [-10.  -10.   -1.5  -1.5]
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - max_values_state: [10.  10.   1.5  1.5]
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - control_fps: 50
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - state_estimation_fps: 50
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - goal_tolerance: 0.1
+2025-07-04 11:56:34.329 | INFO     | env_generator_config:log_information:92 - Kp: 0.5
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - Kd: 0.2
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - u_min_max: [-1000  1000]
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - grid_size: 0.1
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - cbf_state_uncertainty_mode: robust
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - cbf_switch_velocity_thres: 0.2
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - cbf_switch_control_diff_thres: 0.01
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - cbf_switch_nominal_control_mag: 0.1
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - cbf_confidence_config: {'levels': [1, 2, 3], 'vmax': [1.5, 1.0, 0.5], 'k': [4.0, 3.0, 2.0], 'sigma_thresholds': [0.03, 0.07], 'deltas': [0.01, 0.01]}
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - min_number_of_sensors: 1
+2025-07-04 11:56:34.338 | INFO     | env_generator_config:log_information:92 - max_number_of_sensors: 5
+2025-07-04 11:56:34.341 | INFO     | env_generator_config:log_information:92 - min_sensor_noise: 0.0
+2025-07-04 11:56:34.341 | INFO     | env_generator_config:log_information:92 - max_sensor_noise: 0.1
+2025-07-04 11:56:34.341 | INFO     | env_generator_config:log_information:92 - magnitude_threshold: 2.0
+2025-07-04 11:56:34.343 | SUCCESS  | env_generator_config:save_to_file:106 - Configuration saved to ./runs/debug/env_config.json
+2025-07-04 11:56:34.343 | SUCCESS  | __main__:load_env_information:146 - Environment data loaded: ./runs/experiment/simulation_results/loaded_env/env_data.json
+2025-07-04 11:57:14.172 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 80% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_80_1.5.png
+2025-07-04 11:57:16.692 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 90% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_90_1.5.png
+2025-07-04 11:57:19.054 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 95% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_95_1.5.png
+2025-07-04 11:57:21.582 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 100% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_100_1.5.png
+2025-07-04 11:58:02.108 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 80% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_80_1.0.png
+2025-07-04 11:58:04.673 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 90% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_90_1.0.png
+2025-07-04 11:58:07.847 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 95% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_95_1.0.png
+2025-07-04 11:58:10.073 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 100% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_100_1.0.png
+2025-07-04 11:58:50.457 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 80% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_80_0.5.png
+2025-07-04 11:58:53.292 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 90% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_90_0.5.png
+2025-07-04 11:58:56.510 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 95% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_95_0.5.png
+2025-07-04 11:58:59.187 | SUCCESS  | perception:create_lipschitz_grid:487 - Grid for 100% percentile saved: ./runs/debug/simulation_results/loaded_env_0/lipschitz_constants_grid/visuals/grid_100_0.5.png
+2025-07-04 11:58:59.242 | SUCCESS  | perception:save_lipschitz_grids:130 - Lipschitz grid for L_Lfh saved: ./runs/debug/simulation_results/loaded_env_0/L_Lfh_grids.json
+2025-07-04 11:58:59.292 | SUCCESS  | perception:save_lipschitz_grids:135 - Lipschitz grid for L_Lgh saved: ./runs/debug/simulation_results/loaded_env_0/L_Lgh_grids.json
+2025-07-04 11:58:59.292 | INFO     | perception:info:34 - Sensor 0: location [m]: [0. 0.], max sensor distance [m]: 10
+2025-07-04 11:58:59.518 | SUCCESS  | perception:__init__:109 - Perception magnitude costmap created
+2025-07-04 11:58:59.642 | SUCCESS  | perception:__init__:111 - Noise costmap created
+2025-07-04 11:58:59.813 | SUCCESS  | cbf_costmap:__init__:21 - CBF costmap created
+2025-07-04 11:58:59.935 | SUCCESS  | robot:__init__:137 - Robot created
+2025-07-04 11:59:00.826 | SUCCESS  | robot:plan:184 - Path planned and costmaps created.
+2025-07-04 11:59:00.826 | SUCCESS  | __main__:save_env_information:102 - Environment data saved: ./runs/debug/simulation_results/loaded_env_0/env_data.json
+2025-07-04 11:59:04.716 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999976889627344): [ 1.00030479 -0.04861773]
+2025-07-04 11:59:04.717 | DEBUG    | robot:control_update:363 - Control inputs: [ 0.07120705 -0.01399819], [ 0.07151415 -0.03959895]
+2025-07-04 11:59:04.732 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999969268868407): [ 1.00024718 -0.03740477]
+2025-07-04 11:59:04.733 | DEBUG    | robot:control_update:363 - Control inputs: [ 5.61610815e-05 -8.80068945e-03], [ 0.00030641 -0.0205107 ]
+2025-07-04 11:59:04.744 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999989184536158): [1.00002338 0.07746864]
+2025-07-04 11:59:04.744 | DEBUG    | robot:control_update:363 - Control inputs: [0.26244462 0.0318389 ], [0.26246908 0.03114389]
+2025-07-04 11:59:04.750 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999968905831349): [ 1.00123089 -0.02141659]
+2025-07-04 11:59:04.751 | DEBUG    | robot:control_update:363 - Control inputs: [-2.64845767e-05 -1.91779341e-02], [ 0.00120751 -0.09888523]
+2025-07-04 11:59:04.766 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999968869037783): [1.00051219 0.09364448]
+2025-07-04 11:59:04.768 | DEBUG    | robot:control_update:363 - Control inputs: [-9.23542811e-06  2.60716572e-02], [0.00050607 0.01222537]
+2025-07-04 11:59:04.770 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999968672937487): [1.0005915  0.10470201]
+2025-07-04 11:59:04.770 | DEBUG    | robot:control_update:363 - Control inputs: [-0.00051532  0.02352123], [7.93054026e-05 1.10575347e-02]
+2025-07-04 11:59:04.779 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999968526039114): [1.00191652 0.06694885]
+2025-07-04 11:59:04.780 | DEBUG    | robot:control_update:363 - Control inputs: [-0.00059464 -0.00621799], [ 0.00132503 -0.03775316]
+2025-07-04 11:59:04.786 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999968764805334): [1.00002319 0.0891303 ]
+2025-07-04 11:59:04.787 | DEBUG    | robot:control_update:363 - Control inputs: [-0.00191964  0.02256676], [-0.00189333  0.02218145]
+2025-07-04 11:59:04.795 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999968785222713): [1.00022989 0.1012345 ]
+2025-07-04 11:59:04.795 | DEBUG    | robot:control_update:363 - Control inputs: [-2.63122906e-05  1.55188849e-02], [0.00020669 0.0121042 ]
+2025-07-04 11:59:04.801 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999968615891732): [1.00354178 0.01170951]
+2025-07-04 11:59:04.801 | DEBUG    | robot:control_update:363 - Control inputs: [-0.00023302 -0.03663141], [ 0.00331189 -0.08952499]
+2025-07-04 11:59:04.830 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.99999677968595): [1.00003434 0.15807997]
+2025-07-04 11:59:04.830 | DEBUG    | robot:control_update:363 - Control inputs: [-5.97417864e-07  4.45563162e-03], [3.69610656e-05 4.11568614e-03]
+2025-07-04 11:59:04.838 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.999996771031457): [1.00018871 0.16631769]
+2025-07-04 11:59:04.838 | DEBUG    | robot:control_update:363 - Control inputs: [-3.75671380e-05  1.01458176e-02], [0.00015437 0.00823772]
+2025-07-04 11:59:04.844 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.9999967519745138): [1.00234378 0.12603942]
+2025-07-04 11:59:04.844 | DEBUG    | robot:control_update:363 - Control inputs: [-0.00019196 -0.01817473], [ 0.00215506 -0.04027827]
+2025-07-04 11:59:04.868 | ERROR    | robot:control_update:362 - Maximum velocity exceeded (0.99999684140304): [1.00005831 0.06802181]
+2025-07-04 11:59:04.868 | DEBUG    | robot:control_update:363 - Control inputs: [-4.69147454e-07 -4.95897017e-02], [ 6.10008517e-05 -5.00417925e-02]
+2025-07-04 11:59:05.876 | SUCCESS  | visualization:save_data:69 - Visualization data saved: ./runs/debug/simulation_results/loaded_env_0/simulation_data
+2025-07-04 11:59:05.876 | SUCCESS  | robot:run_simulation:431 - Goal reached in 11.159999999999851 seconds
+2025-07-04 11:59:08.488 | SUCCESS  | visualization:create_full_plot:601 - Visualization saved: ./runs/debug/simulation_results/loaded_env_0/simulation_success.png
+2025-07-04 11:59:10.032 | SUCCESS  | visualization:create_full_plot:601 - Visualization saved: ./runs/debug/simulation_results/all_envs/0_success.png
