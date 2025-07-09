@@ -6,9 +6,9 @@ import os
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
-from itertools import product
 from tqdm import tqdm
-import sys
+import json
+import copy
 
 
 class Sensor:
@@ -53,9 +53,11 @@ class Perception:
         magnitude_threshold: float = 2.0,
         num_samples_per_dim: int = 4,
         sensors: list = None,
+        load_lipschitz_grid_path: str = None,
     ):
         self.costmap_size = costmap_size
         self.cbf = cbf
+        self.env_dir = env_dir
         self.min_values_state = min_values_state
         self.max_values_state = max_values_state
         self.max_sensor_noise = max_sensor_noise
@@ -63,24 +65,34 @@ class Perception:
         self.magnitude_threshold = magnitude_threshold
 
         # estimate the lipschitz constants for the grid
-        self.L_Lfh_grids, self.L_Lgh_grids = {}, {}
-        for i in range(len(confidence_config["levels"])):
-            v_max = confidence_config["vmax"][i]
-            _min_values_state = np.array(
-                [min_values_state[0], min_values_state[1], -v_max, -v_max]
-            )
-            _max_values_state = np.array(
-                [max_values_state[0], max_values_state[1], v_max, v_max]
-            )
-            L_Lfh_grids, L_Lgh_grids = self.analyze_lipschitz_grid(
-                min_values_state=_min_values_state,
-                max_values_state=_max_values_state,
-                num_points_per_dim_per_cell=num_samples_per_dim,
-                env_dir=env_dir,
-                save_histogram=False,
-            )
-            self.L_Lfh_grids[f"{i}"] = L_Lfh_grids
-            self.L_Lgh_grids[f"{i}"] = L_Lgh_grids
+        if load_lipschitz_grid_path is not None:
+            self.L_Lfh_grids, self.L_Lgh_grids = self.load_lipschitz_grids(load_lipschitz_grid_path)
+        else:
+            percentiles = ["80", "90", "95", "100"]
+            self.L_Lfh_grids, self.L_Lgh_grids = {}, {}
+            for i in range(len(confidence_config["levels"])):
+                v_max = confidence_config["vmax"][i]
+                _min_values_state = np.array(
+                    [min_values_state[0], min_values_state[1], -v_max, -v_max]
+                )
+                _max_values_state = np.array(
+                    [max_values_state[0], max_values_state[1], v_max, v_max]
+                )
+                L_Lfh_grids, L_Lgh_grids = self.create_lipschitz_grid(
+                    min_values_state=_min_values_state,
+                    max_values_state=_max_values_state,
+                    percentiles=percentiles,
+                    num_points_per_dim_per_cell=num_samples_per_dim,
+                    save_histogram=False,
+                )
+                self.L_Lfh_grids[f"{i}"] = L_Lfh_grids
+                self.L_Lgh_grids[f"{i}"] = L_Lgh_grids
+
+        # save the lipschitz grids
+        self.save_lipschitz_grids()
+
+        # create lipschitz consants for base MRCBF paper
+        self.L_Lfhs_mrcbf, self.L_Lghs_mrcbf = self.mrcbf_lipschitz_constants()
 
         # create the sensors if not given
         self.sensors = sensors
@@ -101,6 +113,55 @@ class Perception:
         logger.success("Perception magnitude costmap created")
         self.noise_costmap = self.create_costmap(costmap_type="noise")
         logger.success("Noise costmap created")
+
+    def save_lipschitz_grids(self):
+        L_Lfh_grids_to_save = copy.deepcopy(self.L_Lfh_grids)
+        L_Lgh_grids_to_save = copy.deepcopy(self.L_Lgh_grids)
+
+        # convert the np.arrays to list
+        for level in L_Lfh_grids_to_save.keys():
+            for percentile in L_Lfh_grids_to_save[level].keys():
+                L_Lfh_grids_to_save[level][percentile] = L_Lfh_grids_to_save[level][
+                    percentile
+                ].tolist()
+                L_Lgh_grids_to_save[level][percentile] = L_Lgh_grids_to_save[level][
+                    percentile
+                ].tolist()
+
+        # save all the grids
+        with open(f"{self.env_dir}/L_Lfh_grids.json", "w") as L_Lfh_file:
+            json.dump(L_Lfh_grids_to_save, L_Lfh_file, indent=4)
+        logger.success(
+            f"Lipschitz grid for L_Lfh saved: {self.env_dir}/L_Lfh_grids.json"
+        )
+        with open(f"{self.env_dir}/L_Lgh_grids.json", "w") as L_Lgh_file:
+            json.dump(L_Lgh_grids_to_save, L_Lgh_file, indent=4)
+        logger.success(
+            f"Lipschitz grid for L_Lgh saved: {self.env_dir}/L_Lgh_grids.json"
+        )
+
+    def load_lipschitz_grids(self, load_env_dir):
+        # load saved grids back into the object
+        with open(f"{load_env_dir}/L_Lfh_grids.json", "r") as L_Lfh_file:
+            L_Lfh_grids = json.load(L_Lfh_file)
+        with open(f"{load_env_dir}/L_Lgh_grids.json", "r") as L_Lgh_file:
+            L_Lgh_grids = json.load(L_Lgh_file)
+
+        # convert the lists to numpy array
+        for level in L_Lfh_grids.keys():
+            for percentile in L_Lfh_grids[level].keys():
+                L_Lfh_grids[level][percentile] = np.array(
+                    L_Lfh_grids[level][percentile]
+                )
+                L_Lgh_grids[level][percentile] = np.array(
+                    L_Lgh_grids[level][percentile]
+                )
+
+        # log that loading grids is successfull
+        logger.success(f"Loading Lipschitz grids done")
+
+        # return the numpy grids
+        return L_Lfh_grids, L_Lgh_grids
 
     def add_sensor(self, sensor: Sensor):
         # add sensor to perception module
@@ -186,8 +247,42 @@ class Perception:
         epsilon = k * noise
         return epsilon
 
+    def calculate_safety_margin_mrcbf_paper(
+        self, u_nominal: np.ndarray
+    ):
+        # safety margin calculation based on the mrcbf paper
+        L_alpha_h = 1.0
+
+        # 3 * noise is 99,7% confidence interval so 4 is closer to robust
+        epsilon = 4 * self.max_sensor_noise  # in the paper they use 0.4 for max noise
+        a = (self.L_Lfhs_mrcbf + L_alpha_h) * epsilon
+        b = self.L_Lghs_mrcbf * epsilon
+        safety_margin = a + b * jnp.linalg.norm(u_nominal)
+        return safety_margin
+
+    def mrcbf_lipschitz_constants(self):
+        # lipschitz constants are absolute maximum value
+        num_barriers = self.cbf.num_cbf
+        L_Lfhs, L_Lghs = [], []
+        for i in range(num_barriers):
+            L_Lfhs.append(np.amax(self.L_Lfh_grids["1"]["100"][:, :, i]))
+            L_Lghs.append(np.amax(self.L_Lgh_grids["1"]["100"][:, :, i]))
+        
+        # convert to numpy and log values
+        L_Lfhs = np.array(L_Lfhs)
+        L_Lghs = np.array(L_Lghs)
+        logger.info(f"L_Lfhs MRCBF: {L_Lfhs}")
+        logger.info(f"L_Lghs MRCBF: {L_Lghs}")
+
+        return L_Lfhs, L_Lghs
+
     def calculate_safety_margin(
-        self, noise: float, u_nominal: np.ndarray, k: float, reachable_set: np.ndarray, confidence_level: int,
+        self,
+        noise: float,
+        u_nominal: np.ndarray,
+        k: float,
+        reachable_set: np.ndarray,
+        confidence_level: int,
     ):
         # Converts the uncertainty to the safety margin that needs to be used by the CBFs to
         # account for estimation uncertainty. Epsilon is upper bound on estimation error
@@ -227,22 +322,25 @@ class Perception:
         a = (L_Lfh + L_alpha_h) * epsilon
         b = L_Lgh * epsilon
         safety_margin = a + b * jnp.linalg.norm(u_nominal)
-        return safety_margin
+        return safety_margin, L_Lfh, L_Lgh
 
-    def analyze_lipschitz_grid(
+    def create_lipschitz_grid(
         self,
         min_values_state: np.ndarray,
         max_values_state: np.ndarray,
+        percentiles: list | np.ndarray | tuple,
         num_points_per_dim_per_cell: int,
-        env_dir: str,
         save_histogram: bool = False,
     ):
         # set some important parameters
         num_barriers = self.cbf.num_cbf
         cell_grid = self.costmap_size
+        lipschitz_dir = f"{self.env_dir}/lipschitz_constants_grid"
 
-        # create dir to save the values
-        os.makedirs(f"{env_dir}/lipschitz_constants_grid", exist_ok=True)
+        # create dirs to save the values
+        os.makedirs(lipschitz_dir, exist_ok=True)
+        os.makedirs(f"{lipschitz_dir}/visuals", exist_ok=True)
+        os.makedirs(f"{lipschitz_dir}/data", exist_ok=True)
 
         # create linspaces
         x_domain = np.linspace(
@@ -253,7 +351,6 @@ class Perception:
         )
 
         # create grids
-        percentiles = ["80", "90", "95", "100"]
         L_Lfh_grid, L_Lgh_grid = {}, {}
         for percentile in percentiles:
             L_Lfh_grid[percentile] = np.zeros(
@@ -322,7 +419,7 @@ class Perception:
 
                     plt.tight_layout()
                     plt.savefig(
-                        f"{env_dir}/lipschitz_constants_grid/lipschitz_constants_{i}_{j}.png"
+                        f"{lipschitz_dir}/visuals/lipschitz_constants_{i}_{j}.png"
                     )
                     plt.close()
 
@@ -343,11 +440,11 @@ class Perception:
         for key in L_Lfh_grid.keys():
             # save the grids
             np.save(
-                f"{env_dir}/lipschitz_constants_grid/L_Lfh_grid_{key}_{max_values_state[2]}.npy",
+                f"{lipschitz_dir}/data/L_Lfh_grid_{key}_{max_values_state[2]}.npy",
                 L_Lfh_grid[key],
             )
             np.save(
-                f"{env_dir}/lipschitz_constants_grid/L_Lgh_grid_{key}_{max_values_state[2]}.npy",
+                f"{lipschitz_dir}/data/L_Lgh_grid_{key}_{max_values_state[2]}.npy",
                 L_Lgh_grid[key],
             )
 
@@ -413,11 +510,9 @@ class Perception:
                         )
 
             plt.tight_layout()
-            plt.savefig(
-                f"{env_dir}/lipschitz_constants_grid/grid_{key}_{max_values_state[2]}.png"
-            )
+            plt.savefig(f"{lipschitz_dir}/visuals/grid_{key}_{max_values_state[2]}.png")
             logger.success(
-                f"Grid for {key}% percentile saved: {env_dir}/lipschitz_constants_grid/grid_{key}_{max_values_state[2]}.png"
+                f"Grid for {key}% percentile saved: {lipschitz_dir}/visuals/grid_{key}_{max_values_state[2]}.png"
             )
         return L_Lfh_grid, L_Lgh_grid
 

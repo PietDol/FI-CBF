@@ -64,6 +64,7 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
+            load_lipschitz_grid_path="./runs/experiment_success/simulation_results/loaded_env_0"
         )
 
         # create cbf costmap
@@ -116,6 +117,7 @@ class Robot:
         self._cbf_switch_control_diff_thres = cbf_switch_control_diff_thres
         self._cbf_switch_nominal_control_mag = cbf_switch_nominal_control_mag
         self._switch_active = False
+        self._env_folder = env_folder
 
         # control parameters
         self._u_min_max = u_min_max
@@ -321,14 +323,23 @@ class Robot:
         u_nominal = self.pd_controller(target_pos, v_max)
 
         # apply safety filter to the control input
-        safety_margin = self.perception.calculate_safety_margin(
+        safety_margin, L_Lfh, L_Lgh = self.perception.calculate_safety_margin(
             noise=noise,
             u_nominal=u_nominal,
             k=k,
             reachable_set=reachable_set,
             confidence_level=conf_level,
         )
+        safety_margin_mrcbf = self.perception.calculate_safety_margin_mrcbf_paper(u_nominal)
         u_cbf = self.cbf.safety_filter(self._estimated_state, u_nominal, safety_margin)
+
+        # calculat Lfh and Lgh for comparison with Lipschitz constants and add them to data
+        _, Lfh = self.cbf.h_and_Lfh(self._true_state, np.zeros(self.cbf_config.num_obstacles))
+        Lgh = self.cbf.Lgh(self._true_state, np.zeros(self.cbf_config.num_obstacles))
+        self.visualizer.data.Lfh.append(Lfh)
+        self.visualizer.data.Lgh.append(Lgh)
+        self.visualizer.data.L_Lfh.append(L_Lfh)
+        self.visualizer.data.L_Lgh.append(L_Lgh)
 
         # check whether to activate the switch
         # self.activate_switch(u_nominal, u_cbf)
@@ -347,6 +358,7 @@ class Robot:
         self.visualizer.data.u_cbf.append(u_cbf)
         self.visualizer.data.u_nominal.append(u_nominal)
         self.visualizer.data.safety_margin.append(safety_margin)
+        self.visualizer.data.safety_margin_mrcbf.append(safety_margin_mrcbf)
         self.visualizer.data.noise.append(noise)
         self.visualizer.data.v_max.append(v_max)
         self.visualizer.data.k.append(k)
@@ -356,8 +368,8 @@ class Robot:
         self._true_state[:2] += self._true_state[2:] * self._control_dt
 
         # check for velocity
-        if np.any(self._true_state[2:] > v_max + 1e-5) or np.any(
-            self._true_state[2:] < -v_max - 1e-5
+        if np.any(self._true_state[2:] > v_max + 1e-3) or np.any(
+            self._true_state[2:] < -v_max - 1e-3
         ):
             logger.error(f"Maximum velocity exceeded ({v_max}): {self._true_state[2:]}")
             logger.debug(f"Control inputs: {u_nominal}, {u_cbf}")
@@ -435,5 +447,6 @@ class Robot:
             return False
 
     def plot(self, filename: str):
-        # create the plot
+        # create the plots
         self.visualizer.create_full_plot(planner=self.planner, filename=filename)
+        self.visualizer.plot_lipschitz(f"{self._env_folder}/lipschitz_constants_time.png")

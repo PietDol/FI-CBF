@@ -12,6 +12,7 @@ class VisualizationData:
         self.h_true = []
         self.h_estimated = []
         self.safety_margin = []
+        self.safety_margin_mrcbf = []
         self.robot_pos = []
         self.robot_pos_estimated = []
         self.robot_vel = []
@@ -28,6 +29,10 @@ class VisualizationData:
         self.state_estimation_time = []
         self.k = []
         self.v_max = []
+        self.Lfh = []
+        self.Lgh = []
+        self.L_Lfh = []
+        self.L_Lgh = []
         self.converted_to_numpy = False
 
     @classmethod
@@ -507,6 +512,39 @@ class VisualizeSimulation:
 
         return ax
 
+    #######################################################################
+    # Plot functions
+    #######################################################################
+    def plot_lipschitz(self, filename):
+        num_barriers = self.data.L_Lfh.shape[1]
+        t_control = self.data.control_time
+        fig, axes = plt.subplots(2, num_barriers, figsize=(12, 10))
+        Lgh_norm = np.linalg.norm(self.data.Lgh, axis=2) 
+        logger.debug(self.data.Lgh.shape)
+        logger.debug(self.data.Lgh)
+
+        for i in range(num_barriers):
+            # Lfh and L_Lfh
+            axes[0, i].plot(t_control, self.data.L_Lfh[:, i], label="L_Lfh")
+            axes[0, i].plot(t_control, self.data.Lfh[:, i], label="Lfh")
+            axes[0, i].set_title(f"L_Lfh and Lfh over time [Barrier {i}]")
+            axes[0, i].grid(True)
+            axes[0, i].legend()
+            axes[0, i].set_xlabel("Time [s]")
+            axes[0, i].set_ylabel("Derivatives [-]")
+
+            # L_Lgh and Lgh
+            axes[1, i].plot(t_control, self.data.L_Lgh[:, i], label="L_Lgh")
+            axes[1, i].plot(t_control, Lgh_norm[:, i], label="Lgh")
+            axes[1, i].set_title(f"L_Lgh and Lgh over time [Barrier {i}]")
+            axes[1, i].grid(True)
+            axes[1, i].legend()
+            axes[1, i].set_xlabel("Time [s]")
+            axes[1, i].set_ylabel("Derivatives [-]")
+        
+        plt.savefig(filename)
+        logger.success(f"Lie derivatives and Lipschitz constants saved: {filename}")
+    
     def create_full_plot(self, planner, filename=None):
         # convert lists to array
         self.data.to_numpy()
