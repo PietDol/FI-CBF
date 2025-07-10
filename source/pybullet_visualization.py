@@ -19,6 +19,7 @@ class PyBulletPlayback:
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.setGravity(0, 0, -9.81)
         self.paused = False
+        self.step = 0  # current frame index
 
         self._init_world()
 
@@ -35,6 +36,37 @@ class PyBulletPlayback:
     def toggle_pause(self, event=None):
         self.paused = not self.paused
         print("Paused" if self.paused else "Resumed")
+
+    def step_forward(self, event=None):
+        if self.paused and self.step < len(self.robot_pos) - 1:
+            self.step += 1
+            self.update_frame()
+
+    def step_back(self, event=None):
+        if self.paused and self.step > 0:
+            self.step -= 1
+            self.update_frame()
+    
+    def update_frame(self):
+        t = self.step
+        pos = self.robot_pos[t]
+        p.resetBasePositionAndOrientation(
+            self.robot_id, [pos[0], pos[1], self.z_base], self.rotation
+        )
+        p.stepSimulation()
+
+        self.time_var.set(f"Time: {t * self.dt:.2f}s  (Step {t})")
+
+        for i in range(self.num_cbfs):
+            ht = self.h_true[t, i]
+            he = self.h_est[t, i]
+            sm = self.margin[t, i]
+            self.cbf_vars[i].set(f"h[{i}]  true: {ht:6.3f}   est: {he:6.3f}   margin: {sm:6.3f}")
+
+        self.noise_var.set(f"Perception noise:     {self.noise[t]:.3f}")
+        self.conf_var.set(f"Confidence level:      {self.confidence[t]:.3f}")
+        self.root.update_idletasks()
+        self.root.update()
 
     def _init_world(self):
         p.loadURDF("plane.urdf")
@@ -87,70 +119,58 @@ class PyBulletPlayback:
             )
 
     def playback(self, dt=0.02):
-        # === Load all simulation data ===
-        h_true = np.load(f"{self.env_dir}/simulation_data/h_true.npy")           # (T, N)
-        h_est = np.load(f"{self.env_dir}/simulation_data/h_estimated.npy")      # (T, N)
-        noise = np.load(f"{self.env_dir}/simulation_data/noise.npy")            # (T,)
-        confidence = np.load(f"{self.env_dir}/simulation_data/conf_level.npy")  # (T,)
-        margin = np.load(f"{self.env_dir}/simulation_data/safety_margin.npy")   # (T, N)
+        # === Load simulation data ===
+        self.h_true = np.load(f"{self.env_dir}/simulation_data/h_true.npy")
+        self.h_est = np.load(f"{self.env_dir}/simulation_data/h_estimated.npy")
+        self.noise = np.load(f"{self.env_dir}/simulation_data/noise.npy")
+        self.confidence = np.load(f"{self.env_dir}/simulation_data/conf_level.npy")
+        self.margin = np.load(f"{self.env_dir}/simulation_data/safety_margin.npy")
 
-        num_cbfs = h_true.shape[1]
+        self.num_cbfs = self.h_true.shape[1]
+        self.dt = dt
 
-        # === Setup GUI ===
-        root = tk.Tk()
-        root.bind("<space>", self.toggle_pause)
-        root.title("Simulation Monitor")
-        root.geometry("500x450")
-        root.resizable(False, False)
+        # === Setup Tkinter GUI ===
+        self.root = tk.Tk()
+        self.root.title("Simulation Monitor")
+        self.root.geometry("500x450")
+        self.root.resizable(False, False)
 
-        # Header: time + step
-        time_var = tk.StringVar()
-        tk.Label(root, textvariable=time_var, font=("Courier", 11, "bold")).pack(anchor="w", padx=10, pady=5)
+        # Bind keys
+        self.root.bind("<space>", self.toggle_pause)
+        self.root.bind("<Right>", self.step_forward)
+        self.root.bind("<Left>", self.step_back)
 
-        # CBF lines (true, estimated, margin)
-        cbf_vars = []
-        for i in range(num_cbfs):
+        # Time and Step Display
+        self.time_var = tk.StringVar()
+        tk.Label(self.root, textvariable=self.time_var, font=("Courier", 11, "bold")).pack(anchor="w", padx=10, pady=5)
+
+        # CBF displays
+        self.cbf_vars = []
+        for i in range(self.num_cbfs):
             var = tk.StringVar()
-            cbf_vars.append(var)
-            tk.Label(root, textvariable=var, font=("Courier", 10)).pack(anchor="w", padx=10)
+            self.cbf_vars.append(var)
+            tk.Label(self.root, textvariable=var, font=("Courier", 10)).pack(anchor="w", padx=10)
 
-        # Extra values
-        noise_var = tk.StringVar()
-        conf_var = tk.StringVar()
-        tk.Label(root, textvariable=noise_var, font=("Courier", 10)).pack(anchor="w", padx=10, pady=(10, 0))
-        tk.Label(root, textvariable=conf_var, font=("Courier", 10)).pack(anchor="w", padx=10)
+        # Other data
+        self.noise_var = tk.StringVar()
+        self.conf_var = tk.StringVar()
+        tk.Label(self.root, textvariable=self.noise_var, font=("Courier", 10)).pack(anchor="w", padx=10, pady=(10, 0))
+        tk.Label(self.root, textvariable=self.conf_var, font=("Courier", 10)).pack(anchor="w", padx=10)
 
-        # === Run simulation ===
-        for t, pos in enumerate(self.robot_pos):
-            while self.paused:
-                root.update()
+        # === Run Simulation ===
+        while self.step < len(self.robot_pos):
+            if not self.paused:
+                self.update_frame()
+                self.step += 1
+                time.sleep(dt)
+            else:
+                self.root.update()
                 time.sleep(0.05)
-            
-            p.resetBasePositionAndOrientation(
-                self.robot_id, [pos[0], pos[1], self.z_base], self.rotation
-            )
-            p.stepSimulation()
-
-            time_var.set(f"Time: {t * dt:.2f}s  (Step {t})")
-
-            for i in range(num_cbfs):
-                ht = h_true[t, i]
-                he = h_est[t, i]
-                sm = margin[t, i]
-                cbf_vars[i].set(f"h[{i}]  true: {ht:6.3f}   est: {he:6.3f}   margin: {sm:6.3f}")
-
-            noise_var.set(f"Perception noise:     {noise[t]:.3f}")
-            conf_var.set(f"Confidence level:      {confidence[t]:.3f}")
-
-            root.update_idletasks()
-            root.update()
-
-            time.sleep(dt)
 
         print("Playback finished.")
         input("Press Enter to exit...")
         p.disconnect()
-        root.destroy()
+        self.root.destroy()
 
 
 if __name__ == "__main__":
