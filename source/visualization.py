@@ -28,6 +28,7 @@ class VisualizationData:
         self.control_time = []
         self.state_estimation_time = []
         self.k = []
+        self.conf_level = []
         self.v_max = []
         self.Lfh = []
         self.Lgh = []
@@ -520,8 +521,6 @@ class VisualizeSimulation:
         t_control = self.data.control_time
         fig, axes = plt.subplots(2, num_barriers, figsize=(12, 10))
         Lgh_norm = np.linalg.norm(self.data.Lgh, axis=2) 
-        logger.debug(self.data.Lgh.shape)
-        logger.debug(self.data.Lgh)
 
         for i in range(num_barriers):
             # Lfh and L_Lfh

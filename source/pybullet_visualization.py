@@ -5,7 +5,7 @@ import json
 import os
 import time
 from scipy.spatial.transform import Rotation as R
-import matplotlib.pyplot as plt
+import tkinter as tk
 
 
 class PyBulletPlayback:
@@ -18,6 +18,7 @@ class PyBulletPlayback:
         self.client = p.connect(p.GUI)
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
         p.setGravity(0, 0, -9.81)
+        self.paused = False
 
         self._init_world()
 
@@ -30,13 +31,16 @@ class PyBulletPlayback:
         path = f"{self.env_dir}/env_data.json"
         with open(path, "r") as f:
             return json.load(f)["obstacles"]
+    
+    def toggle_pause(self, event=None):
+        self.paused = not self.paused
+        print("Paused" if self.paused else "Resumed")
 
     def _init_world(self):
         p.loadURDF("plane.urdf")
 
         # Scale robot to 1m wide
         scale_factor = 1.0 / 0.344  # ≈ 2.91
-        robot_height = 0.604 * scale_factor
         self.z_base = 0.604 * scale_factor / 2
 
         # Rotate so arm faces +X
@@ -82,16 +86,71 @@ class PyBulletPlayback:
                 basePosition=[pos[0], pos[1], 0.1],
             )
 
-    def playback(self, dt: float = 0.02):
-        for pos in self.robot_pos:
+    def playback(self, dt=0.02):
+        # === Load all simulation data ===
+        h_true = np.load(f"{self.env_dir}/simulation_data/h_true.npy")           # (T, N)
+        h_est = np.load(f"{self.env_dir}/simulation_data/h_estimated.npy")      # (T, N)
+        noise = np.load(f"{self.env_dir}/simulation_data/noise.npy")            # (T,)
+        confidence = np.load(f"{self.env_dir}/simulation_data/conf_level.npy")  # (T,)
+        margin = np.load(f"{self.env_dir}/simulation_data/safety_margin.npy")   # (T, N)
+
+        num_cbfs = h_true.shape[1]
+
+        # === Setup GUI ===
+        root = tk.Tk()
+        root.bind("<space>", self.toggle_pause)
+        root.title("Simulation Monitor")
+        root.geometry("500x450")
+        root.resizable(False, False)
+
+        # Header: time + step
+        time_var = tk.StringVar()
+        tk.Label(root, textvariable=time_var, font=("Courier", 11, "bold")).pack(anchor="w", padx=10, pady=5)
+
+        # CBF lines (true, estimated, margin)
+        cbf_vars = []
+        for i in range(num_cbfs):
+            var = tk.StringVar()
+            cbf_vars.append(var)
+            tk.Label(root, textvariable=var, font=("Courier", 10)).pack(anchor="w", padx=10)
+
+        # Extra values
+        noise_var = tk.StringVar()
+        conf_var = tk.StringVar()
+        tk.Label(root, textvariable=noise_var, font=("Courier", 10)).pack(anchor="w", padx=10, pady=(10, 0))
+        tk.Label(root, textvariable=conf_var, font=("Courier", 10)).pack(anchor="w", padx=10)
+
+        # === Run simulation ===
+        for t, pos in enumerate(self.robot_pos):
+            while self.paused:
+                root.update()
+                time.sleep(0.05)
+            
             p.resetBasePositionAndOrientation(
                 self.robot_id, [pos[0], pos[1], self.z_base], self.rotation
             )
             p.stepSimulation()
+
+            time_var.set(f"Time: {t * dt:.2f}s  (Step {t})")
+
+            for i in range(num_cbfs):
+                ht = h_true[t, i]
+                he = h_est[t, i]
+                sm = margin[t, i]
+                cbf_vars[i].set(f"h[{i}]  true: {ht:6.3f}   est: {he:6.3f}   margin: {sm:6.3f}")
+
+            noise_var.set(f"Perception noise:     {noise[t]:.3f}")
+            conf_var.set(f"Confidence level:      {confidence[t]:.3f}")
+
+            root.update_idletasks()
+            root.update()
+
             time.sleep(dt)
+
         print("Playback finished.")
         input("Press Enter to exit...")
         p.disconnect()
+        root.destroy()
 
 
 if __name__ == "__main__":

@@ -362,6 +362,7 @@ class Robot:
         self.visualizer.data.noise.append(noise)
         self.visualizer.data.v_max.append(v_max)
         self.visualizer.data.k.append(k)
+        self.visualizer.data.conf_level.append(conf_level)
 
         # update the state of the system
         self._true_state[2:] += u_cbf
