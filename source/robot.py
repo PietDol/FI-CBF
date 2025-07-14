@@ -7,6 +7,7 @@ from confidence_manager import ConfidenceManager
 from loguru import logger
 from cbfpy import CBF
 import numpy as np
+import jax.numpy as jnp
 
 
 class Robot:
@@ -64,7 +65,7 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
-            load_lipschitz_grid_path="./runs/experiment_success/simulation_results/loaded_env_0"
+            load_lipschitz_grid_path="./runs/experiment_success/simulation_results/loaded_env_0",
         )
 
         # create cbf costmap
@@ -290,14 +291,54 @@ class Robot:
             # add time to the visualizer
             self.visualizer.data.cbf_switch_active.append(self._t_control)
 
-    def calculate_reachable_set(self, v_max: float, noise: float):
-        # function to calculate the reachable set of the robot
+    def calculate_reachable_set(
+        self, v_max: float, noise: float, steps_ahead: float = 1.0
+    ):
+        # function to calculate the reachable set of the robot and the constraint matrices for the QP
         # take 99.7% confidence interval (3 sigma around)
-        x_min = self._estimated_state[0] - 3 * noise - v_max * self._control_dt
-        x_max = self._estimated_state[0] + 3 * noise + v_max * self._control_dt
-        y_min = self._estimated_state[1] - 3 * noise - v_max * self._control_dt
-        y_max = self._estimated_state[1] + 3 * noise + v_max * self._control_dt
-        return np.array([[x_min, x_max], [y_min, y_max]])
+        x_min = (
+            self._estimated_state[0]
+            - 3 * noise
+            - steps_ahead * v_max * self._control_dt
+        )
+        x_max = (
+            self._estimated_state[0]
+            + 3 * noise
+            + steps_ahead * v_max * self._control_dt
+        )
+        y_min = (
+            self._estimated_state[1]
+            - 3 * noise
+            - steps_ahead * v_max * self._control_dt
+        )
+        y_max = (
+            self._estimated_state[1]
+            + 3 * noise
+            + steps_ahead * v_max * self._control_dt
+        )
+
+        # create the matrices for that: Gu <= h (https://github.com/kevin-tracy/qpax)
+        G = jnp.array(
+            [
+                [steps_ahead * self._control_dt, 0],  # x_max
+                [0, steps_ahead * self._control_dt],  # y_max
+                [-steps_ahead * self._control_dt, 0],  # x_min
+                [0, -steps_ahead * self._control_dt],  # y_min
+            ]
+        )
+        h = jnp.array(
+            [
+                steps_ahead * (v_max - self._estimated_state[2]) * self._control_dt
+                + 3 * noise,  # x_max
+                steps_ahead * (v_max - self._estimated_state[3]) * self._control_dt
+                + 3 * noise,  # y_max
+                steps_ahead * (v_max + self._estimated_state[2]) * self._control_dt
+                + 3 * noise,  # x_min
+                steps_ahead * (v_max + self._estimated_state[3]) * self._control_dt
+                + 3 * noise,  # y_min
+            ]
+        )
+        return np.array([[x_min, x_max], [y_min, y_max]]), G, h
 
     #########################################################
     # MAIN METHODS
@@ -317,7 +358,9 @@ class Robot:
         conf_level, v_max, k = self.confidence_manager.get_confidence_info(noise)
 
         # calculate the reachable set
-        reachable_set = self.calculate_reachable_set(v_max=v_max, noise=noise)
+        reachable_set, G_constraint, h_constraint = self.calculate_reachable_set(
+            v_max=v_max, noise=noise, steps_ahead=2.0
+        )
 
         # calculate the nominal control
         u_nominal = self.pd_controller(target_pos, v_max)
@@ -330,11 +373,17 @@ class Robot:
             reachable_set=reachable_set,
             confidence_level=conf_level,
         )
-        safety_margin_mrcbf = self.perception.calculate_safety_margin_mrcbf_paper(u_nominal)
-        u_cbf = self.cbf.safety_filter(self._estimated_state, u_nominal, safety_margin)
+        safety_margin_mrcbf = self.perception.calculate_safety_margin_mrcbf_paper(
+            u_nominal
+        )
+        u_cbf = self.cbf.safety_filter(
+            self._estimated_state, u_nominal, safety_margin, G_constraint, h_constraint
+        )
 
         # calculat Lfh and Lgh for comparison with Lipschitz constants and add them to data
-        _, Lfh = self.cbf.h_and_Lfh(self._true_state, np.zeros(self.cbf_config.num_obstacles))
+        _, Lfh = self.cbf.h_and_Lfh(
+            self._true_state, np.zeros(self.cbf_config.num_obstacles)
+        )
         Lgh = self.cbf.Lgh(self._true_state, np.zeros(self.cbf_config.num_obstacles))
         self.visualizer.data.Lfh.append(Lfh)
         self.visualizer.data.Lgh.append(Lgh)
@@ -450,4 +499,6 @@ class Robot:
     def plot(self, filename: str):
         # create the plots
         self.visualizer.create_full_plot(planner=self.planner, filename=filename)
-        self.visualizer.plot_lipschitz(f"{self._env_folder}/lipschitz_constants_time.png")
+        self.visualizer.plot_lipschitz(
+            f"{self._env_folder}/lipschitz_constants_time.png"
+        )
