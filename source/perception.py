@@ -66,9 +66,12 @@ class Perception:
 
         # estimate the lipschitz constants for the grid
         if load_lipschitz_grid_path is not None:
-            self.L_Lfh_grids, self.L_Lgh_grids = self.load_lipschitz_grids(load_lipschitz_grid_path)
+            self.L_Lfh_grids, self.L_Lgh_grids = self.load_lipschitz_grids(
+                load_lipschitz_grid_path
+            )
         else:
-            percentiles = ["80", "90", "95", "100"]
+            # percentiles = ["80", "90", "95", "100"]
+            percentiles = ["80", "100"]
             self.L_Lfh_grids, self.L_Lgh_grids = {}, {}
             for i in range(len(confidence_config["levels"])):
                 v_max = confidence_config["vmax"][i]
@@ -87,6 +90,17 @@ class Perception:
                 )
                 self.L_Lfh_grids[f"{i}"] = L_Lfh_grids
                 self.L_Lgh_grids[f"{i}"] = L_Lgh_grids
+
+        # plot the grid
+        # self.plot_lipschitz_grids(
+        #     x_domain=np.linspace(
+        #         min_values_state[0], max_values_state[0], costmap_size[0] + 1
+        #     ),
+        #     y_domain=np.linspace(
+        #         min_values_state[1], max_values_state[1], costmap_size[1] + 1
+        #     ),
+        #     max_velocity=max_values_state[2],
+        # )
 
         # save the lipschitz grids
         self.save_lipschitz_grids()
@@ -247,9 +261,7 @@ class Perception:
         epsilon = k * noise
         return epsilon
 
-    def calculate_safety_margin_mrcbf_paper(
-        self, u_nominal: np.ndarray
-    ):
+    def calculate_safety_margin_mrcbf_paper(self, u_nominal: np.ndarray):
         # safety margin calculation based on the mrcbf paper
         L_alpha_h = 1.0
 
@@ -267,7 +279,7 @@ class Perception:
         for i in range(num_barriers):
             L_Lfhs.append(np.amax(self.L_Lfh_grids["1"]["100"][:, :, i]))
             L_Lghs.append(np.amax(self.L_Lgh_grids["1"]["100"][:, :, i]))
-        
+
         # convert to numpy and log values
         L_Lfhs = np.array(L_Lfhs)
         L_Lghs = np.array(L_Lghs)
@@ -305,11 +317,15 @@ class Perception:
         # calculate the range of the indices
         row_min, col_min = np.amin(indices, axis=0)
         row_max, col_max = np.amax(indices, axis=0)
-        rows = np.arange(row_min, row_max + 1)  # +1 because the stop must be included
-        cols = np.arange(col_min, col_max + 1)  # +1 because the stop must be included
+        rows = np.arange(
+            max(row_min, 0), min(row_max + 1, self.costmap_size[0] - 1)
+        )  # +1 because the stop must be included
+        cols = np.arange(
+            max(col_min, 0), min(col_max + 1, self.costmap_size[1] - 1)
+        )  # +1 because the stop must be included
 
         # get the lipschitz values from the grid
-        # for now tak 90% percentile
+        # for now tak 80% percentile
         L_Lfhs, L_Lghs = [], []
         for i in rows:
             for j in cols:
@@ -323,6 +339,101 @@ class Perception:
         b = L_Lgh * epsilon
         safety_margin = a + b * jnp.linalg.norm(u_nominal)
         return safety_margin, L_Lfh, L_Lgh
+
+    def plot_lipschitz_grids(
+        self,
+        x_domain: np.ndarray,
+        y_domain: np.ndarray,
+        max_velocity: float,
+    ):
+        # plot the grids
+        # some parameters
+        num_barriers = self.cbf.num_cbf
+        cell_grid = self.costmap_size
+        lipschitz_dir = f"{self.env_dir}/lipschitz_constants_grid"
+
+        # create dirs for visuals
+        os.makedirs(f"{lipschitz_dir}/visuals", exist_ok=True)
+
+        # iterate over the grids
+        for confidence_key, percentiles_dict in self.L_Lfh_grids.items():
+            for percentile_key in percentiles_dict.keys():
+                # create the figure
+                fig, axes = plt.subplots(2, num_barriers, figsize=(12, 10))
+                extent = [x_domain[0], x_domain[-1], y_domain[0], y_domain[-1]]
+                for i in range(num_barriers):
+                    # L_Lfh
+                    im1 = axes[0, i].imshow(
+                        self.L_Lfh_grids[confidence_key][percentile_key][:, :, i],
+                        origin="lower",
+                        extent=extent,
+                        cmap="Blues",
+                    )
+                    axes[0, i].set_title(
+                        f"L_Lfh {percentile_key}% percentile grid [Barrier {i}]"
+                    )
+                    axes[0, i].grid(True)
+                    axes[0, i].axis("equal")
+                    fig.colorbar(im1, ax=axes[0, i])
+
+                    # annotate each cell with the max value
+                    for xi in range(cell_grid[1]):
+                        for yi in range(cell_grid[0]):
+                            # Get center of cell
+                            x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
+                            y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
+                            val = self.L_Lfh_grids[confidence_key][percentile_key][
+                                yi, xi, i
+                            ]
+                            axes[0, i].text(
+                                x_mid,
+                                y_mid,
+                                f"{val:.2f}",
+                                color="black",
+                                ha="center",
+                                va="center",
+                                fontsize=5,
+                            )
+
+                    # L_Lgh
+                    im2 = axes[1, i].imshow(
+                        self.L_Lgh_grids[confidence_key][percentile_key][:, :, i],
+                        origin="lower",
+                        extent=extent,
+                        cmap="Oranges",
+                    )
+                    axes[1, i].set_title(
+                        f"L_Lgh {percentile_key}% percentile grid [Barrier {i}]"
+                    )
+                    axes[1, i].grid(True)
+                    axes[1, i].axis("equal")
+                    fig.colorbar(im2, ax=axes[1, i])
+
+                    # annotate each cell with the max value
+                    for xi in range(cell_grid[1]):
+                        for yi in range(cell_grid[0]):
+                            x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
+                            y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
+                            val = self.L_Lgh_grids[confidence_key][percentile_key][
+                                yi, xi, i
+                            ]
+                            axes[1, i].text(
+                                x_mid,
+                                y_mid,
+                                f"{val:.2f}",
+                                color="black",
+                                ha="center",
+                                va="center",
+                                fontsize=5,
+                            )
+
+                plt.tight_layout()
+                plt.savefig(
+                    f"{lipschitz_dir}/visuals/grid_{percentile_key}_{confidence_key}.png"
+                )
+                logger.success(
+                    f"Grid for {percentile_key}% percentile and confidence {confidence_key} saved: {lipschitz_dir}/visuals/grid_{percentile_key}_{confidence_key}.png"
+                )
 
     def create_lipschitz_grid(
         self,
@@ -448,72 +559,6 @@ class Perception:
                 L_Lgh_grid[key],
             )
 
-            # plot the grids
-            fig, axes = plt.subplots(2, num_barriers, figsize=(12, 10))
-            extent = [x_domain[0], x_domain[-1], y_domain[0], y_domain[-1]]
-            for i in range(num_barriers):
-                # L_Lfh
-                im1 = axes[0, i].imshow(
-                    L_Lfh_grid[key][:, :, i],
-                    origin="lower",
-                    extent=extent,
-                    cmap="Blues",
-                )
-                axes[0, i].set_title(f"L_Lfh {key}% percentile grid [Barrier {i}]")
-                axes[0, i].grid(True)
-                axes[0, i].axis("equal")
-                fig.colorbar(im1, ax=axes[0, i])
-
-                # annotate each cell with the max value
-                for xi in range(cell_grid[1]):
-                    for yi in range(cell_grid[0]):
-                        # Get center of cell
-                        x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
-                        y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
-                        val = L_Lfh_grid[key][yi, xi, i]
-                        axes[0, i].text(
-                            x_mid,
-                            y_mid,
-                            f"{val:.2f}",
-                            color="black",
-                            ha="center",
-                            va="center",
-                            fontsize=5,
-                        )
-
-                # L_Lgh
-                im2 = axes[1, i].imshow(
-                    L_Lgh_grid[key][:, :, i],
-                    origin="lower",
-                    extent=extent,
-                    cmap="Oranges",
-                )
-                axes[1, i].set_title(f"L_Lgh {key}% percentile grid [Barrier {i}]")
-                axes[1, i].grid(True)
-                axes[1, i].axis("equal")
-                fig.colorbar(im2, ax=axes[1, i])
-
-                # annotate each cell with the max value
-                for xi in range(cell_grid[1]):
-                    for yi in range(cell_grid[0]):
-                        x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
-                        y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
-                        val = L_Lgh_grid[key][yi, xi, i]
-                        axes[1, i].text(
-                            x_mid,
-                            y_mid,
-                            f"{val:.2f}",
-                            color="black",
-                            ha="center",
-                            va="center",
-                            fontsize=5,
-                        )
-
-            plt.tight_layout()
-            plt.savefig(f"{lipschitz_dir}/visuals/grid_{key}_{max_values_state[2]}.png")
-            logger.success(
-                f"Grid for {key}% percentile saved: {lipschitz_dir}/visuals/grid_{key}_{max_values_state[2]}.png"
-            )
         return L_Lfh_grid, L_Lgh_grid
 
     def _estimate_cbf_lipschitz_constants(

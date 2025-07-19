@@ -105,18 +105,46 @@ class PyBulletPlayback:
 
     def _spawn_obstacles(self):
         for obs in self.obstacles:
+            obs_type = obs.get("type", "circle")  # Default to circle if type is missing
             pos = obs["center"]
-            radius = obs["radius"]
-            vis = p.createVisualShape(
-                p.GEOM_CYLINDER, radius=radius, length=2.0, rgbaColor=[1, 0, 0, 1]
-            )
-            col = p.createCollisionShape(p.GEOM_CYLINDER, radius=radius, height=2.0)
-            p.createMultiBody(
-                baseMass=0,
-                baseCollisionShapeIndex=col,
-                baseVisualShapeIndex=vis,
-                basePosition=[pos[0], pos[1], 0.1],
-            )
+
+            if obs_type == "rectangle":
+                width = obs["width"]
+                height = obs["height"]
+                z_half = 1.0  # obstacle height in z-direction (visual), adjust as needed
+                half_extents = [width / 2, height / 2, z_half / 2]
+
+                vis = p.createVisualShape(
+                    shapeType=p.GEOM_BOX,
+                    halfExtents=half_extents,
+                    rgbaColor=[0.2, 0.6, 1.0, 1.0]  # light blue
+                )
+                col = p.createCollisionShape(
+                    shapeType=p.GEOM_BOX,
+                    halfExtents=half_extents
+                )
+                p.createMultiBody(
+                    baseMass=0,
+                    baseVisualShapeIndex=vis,
+                    baseCollisionShapeIndex=col,
+                    basePosition=[pos[0], pos[1], half_extents[2]]  # center at top surface
+                )
+
+            else:  # assume circular obstacle
+                radius = obs["radius"]
+                z_half = 1.0
+                vis = p.createVisualShape(
+                    p.GEOM_CYLINDER, radius=radius, length=2 * z_half, rgbaColor=[1, 0, 0, 1]
+                )
+                col = p.createCollisionShape(
+                    p.GEOM_CYLINDER, radius=radius, height=2 * z_half
+                )
+                p.createMultiBody(
+                    baseMass=0,
+                    baseVisualShapeIndex=vis,
+                    baseCollisionShapeIndex=col,
+                    basePosition=[pos[0], pos[1], z_half]  # center at top surface
+                )
 
     def playback(self, dt=0.02):
         # === Load simulation data ===
@@ -174,5 +202,6 @@ class PyBulletPlayback:
 
 
 if __name__ == "__main__":
-    VISUALIZER = PyBulletPlayback("./runs/experiment_success/simulation_results/loaded_env_0")  # <--- update path if needed
-    VISUALIZER.playback()
+    # pybullet_visualizer = PyBulletPlayback("./runs/experiment_success/simulation_results/loaded_env_0")  
+    pybullet_visualizer = PyBulletPlayback("./runs/experiments/simulation_results/fabric_experiment")  
+    pybullet_visualizer.playback()

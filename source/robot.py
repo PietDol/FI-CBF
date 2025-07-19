@@ -7,8 +7,9 @@ from confidence_manager import ConfidenceManager
 from loguru import logger
 from cbfpy import CBF
 import numpy as np
+import jax
 import jax.numpy as jnp
-
+import time
 
 class Robot:
     def __init__(
@@ -66,6 +67,7 @@ class Robot:
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
             load_lipschitz_grid_path="./runs/experiment_success/simulation_results/loaded_env_0",
+            # load_lipschitz_grid_path="./runs/experiment_fabric/simulation_results/fabric_experiment",
         )
 
         # create cbf costmap
@@ -292,7 +294,11 @@ class Robot:
             self.visualizer.data.cbf_switch_active.append(self._t_control)
 
     def calculate_reachable_set(
-        self, v_max: float, noise: float, steps_ahead: float = 1.0
+        self,
+        v_max: float,
+        noise: float,
+        steps_ahead: float = 1.0,
+        work_domain: np.ndarray = np.array([[-10, 10], [-10, 10]]),
     ):
         # function to calculate the reachable set of the robot and the constraint matrices for the QP
         # take 99.7% confidence interval (3 sigma around)
@@ -317,25 +323,51 @@ class Robot:
             + steps_ahead * v_max * self._control_dt
         )
 
+        # make sure robot stays within the working env
+        x_min = max(work_domain[0, 0], x_min)
+        x_max = min(work_domain[0, 1], x_max)
+        y_min = max(work_domain[1, 0], y_min)
+        y_max = min(work_domain[1, 1], y_max)
+
         # create the matrices for that: Gu <= h (https://github.com/kevin-tracy/qpax)
         G = jnp.array(
             [
-                [steps_ahead * self._control_dt, 0],  # x_max
-                [0, steps_ahead * self._control_dt],  # y_max
+                # stay within reachable set
                 [-steps_ahead * self._control_dt, 0],  # x_min
+                [steps_ahead * self._control_dt, 0],  # x_max
                 [0, -steps_ahead * self._control_dt],  # y_min
+                [0, steps_ahead * self._control_dt],  # y_max
+                # stay within working domain
+                [-steps_ahead * self._control_dt, 0],  # x_min
+                [steps_ahead * self._control_dt, 0],  # x_max
+                [0, -steps_ahead * self._control_dt],  # y_min
+                [0, steps_ahead * self._control_dt],  # y_max
             ]
         )
         h = jnp.array(
             [
-                steps_ahead * (v_max - self._estimated_state[2]) * self._control_dt
-                + 3 * noise,  # x_max
-                steps_ahead * (v_max - self._estimated_state[3]) * self._control_dt
-                + 3 * noise,  # y_max
+                # stay within reachable set
                 steps_ahead * (v_max + self._estimated_state[2]) * self._control_dt
                 + 3 * noise,  # x_min
+                steps_ahead * (v_max - self._estimated_state[2]) * self._control_dt
+                + 3 * noise,  # x_max
                 steps_ahead * (v_max + self._estimated_state[3]) * self._control_dt
                 + 3 * noise,  # y_min
+                steps_ahead * (v_max - self._estimated_state[3]) * self._control_dt
+                + 3 * noise,  # y_max
+                # stay within working domain
+                -work_domain[0, 0]
+                + self._estimated_state[0]
+                + steps_ahead * self._estimated_state[2] * self._control_dt,  # x_min
+                work_domain[0, 1]
+                - self._estimated_state[0]
+                - steps_ahead * self._estimated_state[2] * self._control_dt,  # x_max
+                -work_domain[1, 0]
+                + self._estimated_state[1]
+                + steps_ahead * self._estimated_state[3] * self._control_dt,  # y_min
+                work_domain[1, 1]
+                - self._estimated_state[1]
+                - steps_ahead * self._estimated_state[3] * self._control_dt,  # y_max
             ]
         )
         return np.array([[x_min, x_max], [y_min, y_max]]), G, h
@@ -365,7 +397,7 @@ class Robot:
         # calculate the nominal control
         u_nominal = self.pd_controller(target_pos, v_max)
 
-        # apply safety filter to the control input
+        # calculate the safety margins
         safety_margin, L_Lfh, L_Lgh = self.perception.calculate_safety_margin(
             noise=noise,
             u_nominal=u_nominal,
@@ -376,33 +408,18 @@ class Robot:
         safety_margin_mrcbf = self.perception.calculate_safety_margin_mrcbf_paper(
             u_nominal
         )
-        u_cbf = self.cbf.safety_filter(
+
+        # apply safety filter to the control input
+        u_cbf, h_estimated, h_true, Lfh, Lgh = self.cbf.safety_filter(
             self._estimated_state, u_nominal, safety_margin, G_constraint, h_constraint
         )
 
-        # calculat Lfh and Lgh for comparison with Lipschitz constants and add them to data
-        _, Lfh = self.cbf.h_and_Lfh(
-            self._true_state, np.zeros(self.cbf_config.num_obstacles)
-        )
-        Lgh = self.cbf.Lgh(self._true_state, np.zeros(self.cbf_config.num_obstacles))
+        # add all the data
         self.visualizer.data.Lfh.append(Lfh)
         self.visualizer.data.Lgh.append(Lgh)
         self.visualizer.data.L_Lfh.append(L_Lfh)
         self.visualizer.data.L_Lgh.append(L_Lgh)
-
-        # check whether to activate the switch
-        # self.activate_switch(u_nominal, u_cbf)
-
-        # add data to visualizer
-        h_true = self.cbf_config.alpha(
-            self.cbf_config.h_1(
-                self._true_state, np.zeros(self.cbf_config.num_obstacles)
-            )
-        )
         self.visualizer.data.h_true.append(np.array(h_true))
-        h_estimated = self.cbf_config.alpha(
-            self.cbf_config.h_1(self._estimated_state, safety_margin)
-        )
         self.visualizer.data.h_estimated.append(np.array(h_estimated))
         self.visualizer.data.u_cbf.append(u_cbf)
         self.visualizer.data.u_nominal.append(u_nominal)
@@ -446,6 +463,7 @@ class Robot:
 
         # apply the loop
         # in general: if both are in the same loop -> first estimation then apply control
+        logger.info("Simulation started...")
         while t < sim_time and not self.check_goal_reached():
             # check order
             if self._t_control < self._t_estimation and t >= self._t_control:

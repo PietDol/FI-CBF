@@ -8,6 +8,7 @@ import json
 from perception import Sensor
 from robot import Robot
 from env_generator_config import EnvGeneratorConfig
+import time
 
 
 class EnvGenerator:
@@ -401,9 +402,12 @@ class EnvGenerator:
         )
 
         # run the simulation
+        start = time.time()
         sim_output = robot.run_simulation(
             sim_time=self.config.max_duration_of_simulation, env_folder=env_folder
         )
+        end = time.time()
+        logger.success(f"Simulation done in {end - start:.4f} seconds")
 
         # create plot
         env_number = env_folder.split("_")[-1]

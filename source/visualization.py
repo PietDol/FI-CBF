@@ -3,6 +3,8 @@ import numpy as np
 from loguru import logger
 import os
 import jax.numpy as jnp
+from jax.core import Tracer
+import jax
 
 
 class VisualizationData:
