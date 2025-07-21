@@ -57,6 +57,7 @@ class Robot:
             costmap_size=costmap_size,
             grid_size=grid_size,
             cbf=self.cbf,
+            obstacles=obstacles,
             env_dir=env_folder,
             confidence_config=cbf_confidence_config,
             min_values_state=min_values_state,
@@ -66,7 +67,7 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
-            load_lipschitz_grid_path="./runs/experiment_success/simulation_results/loaded_env_0",
+            load_lipschitz_grid_path="./runs/experiment_success/simulation_results/fake_experiment",
             # load_lipschitz_grid_path="./runs/experiment_fabric/simulation_results/fabric_experiment",
         )
 
@@ -435,11 +436,11 @@ class Robot:
         self._true_state[:2] += self._true_state[2:] * self._control_dt
 
         # check for velocity
-        if np.any(self._true_state[2:] > v_max + 1e-3) or np.any(
-            self._true_state[2:] < -v_max - 1e-3
-        ):
-            logger.error(f"Maximum velocity exceeded ({v_max}): {self._true_state[2:]}")
-            logger.debug(f"Control inputs: {u_nominal}, {u_cbf}")
+        # if np.any(self._true_state[2:] > v_max + 1e-3) or np.any(
+        #     self._true_state[2:] < -v_max - 1e-3
+        # ):
+        #     logger.error(f"Maximum velocity exceeded ({v_max}): {self._true_state[2:]}")
+        #     logger.debug(f"Control inputs: {u_nominal}, {u_cbf}")
 
     def state_estimation_update(self):
         # method to get the state estimation of the robot

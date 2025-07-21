@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 import json
 import copy
+from obstacles import CircleObstacle, RectangleObstacle
 
 
 class Sensor:
@@ -44,6 +45,7 @@ class Perception:
         costmap_size: np.ndarray,
         grid_size: np.ndarray,
         cbf: CBF,
+        obstacles: list,
         env_dir: str,
         confidence_config: dict,
         min_values_state: np.ndarray,
@@ -63,6 +65,7 @@ class Perception:
         self.max_sensor_noise = max_sensor_noise
         self.min_sensor_noise = min_sensor_noise
         self.magnitude_threshold = magnitude_threshold
+        self.obstacles = obstacles
 
         # estimate the lipschitz constants for the grid
         if load_lipschitz_grid_path is not None:
@@ -99,7 +102,6 @@ class Perception:
         #     y_domain=np.linspace(
         #         min_values_state[1], max_values_state[1], costmap_size[1] + 1
         #     ),
-        #     max_velocity=max_values_state[2],
         # )
 
         # save the lipschitz grids
@@ -274,11 +276,65 @@ class Perception:
 
     def mrcbf_lipschitz_constants(self):
         # lipschitz constants are absolute maximum value
-        num_barriers = self.cbf.num_cbf
         L_Lfhs, L_Lghs = [], []
-        for i in range(num_barriers):
-            L_Lfhs.append(np.amax(self.L_Lfh_grids["1"]["100"][:, :, i]))
-            L_Lghs.append(np.amax(self.L_Lgh_grids["1"]["100"][:, :, i]))
+
+        # helper functions
+        def is_square_fully_inside_circle(square_center, square_size, circle_center, circle_radius):
+            half_size = square_size / 2
+
+            # Compute the coordinates of the square corners
+            corners = np.array([
+                square_center + [-half_size, -half_size],
+                square_center + [-half_size,  half_size],
+                square_center + [ half_size, -half_size],
+                square_center + [ half_size,  half_size],
+            ])
+            
+            # Check if all corners are within the circle
+            distances = np.linalg.norm(corners - circle_center, axis=1)
+            return np.all(distances <= circle_radius)
+
+        # make sure that the grids inside the obstacles are not taken into account
+        for i, obstacle in enumerate(self.obstacles):
+            # get max values in world coordinates
+            x_min = obstacle.pos_center[0] - (
+                obstacle.radius + obstacle.robot_radius
+            )
+            x_max = obstacle.pos_center[0] + (
+                obstacle.radius + obstacle.robot_radius
+            )
+            y_min = obstacle.pos_center[1] - (
+                obstacle.radius + obstacle.robot_radius
+            )
+            y_max = obstacle.pos_center[1] + (
+                obstacle.radius + obstacle.robot_radius
+            )
+
+            origin_offset = np.array(self.costmap_size) / 2
+            # convert to indices of the grid
+            col_min_ind = int(np.floor(x_min + origin_offset[1]))
+            col_max_ind = int(np.floor(x_max + origin_offset[1]))
+            row_min_ind = int(np.floor(y_min + origin_offset[0]))
+            row_max_ind = int(np.floor(y_max + origin_offset[0]))
+
+            # create mask
+            mask = np.ones(self.L_Lfh_grids["1"]["100"].shape[:2], dtype=bool)
+            if isinstance(obstacle, RectangleObstacle):
+                raise NotImplementedError
+            elif isinstance(obstacle, CircleObstacle):
+                for col in range(col_min_ind, col_max_ind+1):
+                    for row in range(row_min_ind, row_max_ind+1):
+                        square_center = np.array([row, col])[::-1] + 0.5 - origin_offset 
+                        mask[row, col] = not(is_square_fully_inside_circle(
+                            square_center=square_center,
+                            square_size=1.0,
+                            circle_center=obstacle.pos_center,
+                            circle_radius=obstacle.radius
+                        ))
+            
+            # only take max of values which are not inside obstacles
+            L_Lfhs.append(np.amax(self.L_Lfh_grids["1"]["100"][:, :, i][mask]))
+            L_Lghs.append(np.amax(self.L_Lgh_grids["1"]["100"][:, :, i][mask]))
 
         # convert to numpy and log values
         L_Lfhs = np.array(L_Lfhs)
@@ -310,7 +366,7 @@ class Perception:
         origin_offset = np.array(self.costmap_size) / 2
         for x in reachable_set[0]:
             for y in reachable_set[1]:
-                grid = np.floor((np.array([x, y]) + origin_offset)).astype(int)
+                grid = np.floor(np.array([x, y]) + origin_offset).astype(int)
                 indices.append(grid[::-1])
         indices = np.array(indices)  # (4, 2)
 
@@ -344,13 +400,13 @@ class Perception:
         self,
         x_domain: np.ndarray,
         y_domain: np.ndarray,
-        max_velocity: float,
     ):
         # plot the grids
         # some parameters
         num_barriers = self.cbf.num_cbf
         cell_grid = self.costmap_size
         lipschitz_dir = f"{self.env_dir}/lipschitz_constants_grid"
+        extent = [x_domain[0], x_domain[-1], y_domain[0], y_domain[-1]]
 
         # create dirs for visuals
         os.makedirs(f"{lipschitz_dir}/visuals", exist_ok=True)
@@ -358,23 +414,22 @@ class Perception:
         # iterate over the grids
         for confidence_key, percentiles_dict in self.L_Lfh_grids.items():
             for percentile_key in percentiles_dict.keys():
-                # create the figure
-                fig, axes = plt.subplots(2, num_barriers, figsize=(12, 10))
-                extent = [x_domain[0], x_domain[-1], y_domain[0], y_domain[-1]]
                 for i in range(num_barriers):
+                    # create the figure
+                    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
                     # L_Lfh
-                    im1 = axes[0, i].imshow(
+                    im1 = axes[0].imshow(
                         self.L_Lfh_grids[confidence_key][percentile_key][:, :, i],
                         origin="lower",
                         extent=extent,
                         cmap="Blues",
                     )
-                    axes[0, i].set_title(
+                    axes[0].set_title(
                         f"L_Lfh {percentile_key}% percentile grid [Barrier {i}]"
                     )
-                    axes[0, i].grid(True)
-                    axes[0, i].axis("equal")
-                    fig.colorbar(im1, ax=axes[0, i])
+                    axes[0].grid(True)
+                    axes[0].axis("equal")
+                    fig.colorbar(im1, ax=axes[0])
 
                     # annotate each cell with the max value
                     for xi in range(cell_grid[1]):
@@ -385,7 +440,7 @@ class Perception:
                             val = self.L_Lfh_grids[confidence_key][percentile_key][
                                 yi, xi, i
                             ]
-                            axes[0, i].text(
+                            axes[0].text(
                                 x_mid,
                                 y_mid,
                                 f"{val:.2f}",
@@ -396,18 +451,18 @@ class Perception:
                             )
 
                     # L_Lgh
-                    im2 = axes[1, i].imshow(
+                    im2 = axes[1].imshow(
                         self.L_Lgh_grids[confidence_key][percentile_key][:, :, i],
                         origin="lower",
                         extent=extent,
                         cmap="Oranges",
                     )
-                    axes[1, i].set_title(
+                    axes[1].set_title(
                         f"L_Lgh {percentile_key}% percentile grid [Barrier {i}]"
                     )
-                    axes[1, i].grid(True)
-                    axes[1, i].axis("equal")
-                    fig.colorbar(im2, ax=axes[1, i])
+                    axes[1].grid(True)
+                    axes[1].axis("equal")
+                    fig.colorbar(im2, ax=axes[1])
 
                     # annotate each cell with the max value
                     for xi in range(cell_grid[1]):
@@ -417,7 +472,7 @@ class Perception:
                             val = self.L_Lgh_grids[confidence_key][percentile_key][
                                 yi, xi, i
                             ]
-                            axes[1, i].text(
+                            axes[1].text(
                                 x_mid,
                                 y_mid,
                                 f"{val:.2f}",
@@ -427,13 +482,14 @@ class Perception:
                                 fontsize=5,
                             )
 
-                plt.tight_layout()
-                plt.savefig(
-                    f"{lipschitz_dir}/visuals/grid_{percentile_key}_{confidence_key}.png"
-                )
-                logger.success(
-                    f"Grid for {percentile_key}% percentile and confidence {confidence_key} saved: {lipschitz_dir}/visuals/grid_{percentile_key}_{confidence_key}.png"
-                )
+                    plt.tight_layout()
+                    plt.savefig(
+                        f"{lipschitz_dir}/visuals/grid_{confidence_key}_{percentile_key}_barrier_{i}.png"
+                    )
+                    plt.close()
+                    logger.success(
+                        f"Grid for confidence {confidence_key}, {percentile_key}% and barrier {i} saved: {lipschitz_dir}/visuals/grid_{confidence_key}_{percentile_key}_barrier_{i}.png"
+                    )
 
     def create_lipschitz_grid(
         self,

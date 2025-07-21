@@ -59,7 +59,7 @@ class FabricEnvironment:
 
     def save_env_json(self):
         # function to create json for expirement
-        robot_radius = 0.5
+        robot_radius = 0.4
         env_dict = {
             "start_pos": [-4.0, 9.0],
             "start_vel": [0.0, 0.0],
@@ -153,7 +153,7 @@ if __name__ == "__main__":
     config = EnvGeneratorConfig(
         number_of_simulations=1,
         work_dir=directory,
-        max_duration_of_simulation=20,
+        max_duration_of_simulation=60,
         min_goal_distance=15,
         min_number_of_obstacles=5,
         max_number_of_obstacles=10,
