@@ -573,10 +573,6 @@ class Perception:
             f"L_Lgh for experiment 0, 1, and 2 saved: {self.env_dir}/L_Lgh_constants.json"
         )
 
-        # log the values in the terminal
-        logger.info(f"L_Lfhs: {L_Lfhs}")
-        logger.info(f"L_Lghs: {L_Lghs}")
-
         return L_Lfhs, L_Lghs
 
     def create_lipschitz_grid_3(

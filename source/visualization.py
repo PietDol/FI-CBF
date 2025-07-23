@@ -31,8 +31,10 @@ class VisualizationData:
         self.k = []
         self.conf_level = []
         self.v_max = []
-        self.Lfh = []
-        self.Lgh = []
+        self.Lfh_est = []
+        self.Lgh_est = []
+        self.Lfh_true = []
+        self.Lgh_true = []
         self.L_Lfh = []
         self.L_Lgh = []
         self.converted_to_numpy = False
@@ -518,24 +520,47 @@ class VisualizeSimulation:
     # Plot functions
     #######################################################################
     def plot_lipschitz(self, filename):
+        # take all the important information from the data
         num_barriers = self.data.L_Lfh.shape[1]
         t_control = self.data.control_time
-        fig, axes = plt.subplots(2, num_barriers, figsize=(12, 10))
-        Lgh_norm = np.linalg.norm(self.data.Lgh, axis=2) 
+        true_pos = self.data.robot_pos
+        estimated_pos = self.data.robot_pos_estimated
+        Lfh_true = self.data.Lfh_true
+        Lfh_est = self.data.Lfh_est
+        Lgh_true = self.data.Lgh_true
+        Lgh_est = self.data.Lgh_est
+        L_Lfh_est = self.data.L_Lfh
+        L_Lgh_est = self.data.L_Lgh
+        u_cbf = self.data.u_cbf
 
+        # compute empirical L_Lfh
+        epsilon = 1e-6  # prevent division by zero
+        delta_pos = np.linalg.norm(true_pos - estimated_pos, axis=1) + epsilon
+        empirical_L_Lfh = np.abs(Lfh_true - Lfh_est) / delta_pos[:, None]
+
+        # compute empirical L_Lgh
+        # we need to compare the lgh time u with L_Lgh * |u|
+        dot_true = np.einsum('tik,ti->tk', Lgh_true, u_cbf) 
+        dot_est  = np.einsum('tik,ti->tk', Lgh_est, u_cbf)
+        empirical_L_Lgh = np.abs(dot_true - dot_est) / delta_pos[:, None] 
+        u_norm =  np.linalg.norm(u_cbf, axis=1)
+        L_Lgh_est = L_Lgh_est * u_norm[:, None]
+
+        # create the figure
+        fig, axes = plt.subplots(2, num_barriers, figsize=(12, 10))
         for i in range(num_barriers):
             # Lfh and L_Lfh
-            axes[0, i].plot(t_control, self.data.L_Lfh[:, i], label="L_Lfh")
-            axes[0, i].plot(t_control, self.data.Lfh[:, i], label="Lfh")
-            axes[0, i].set_title(f"L_Lfh and Lfh over time [Barrier {i}]")
+            axes[0, i].plot(t_control, empirical_L_Lfh[:, i], label="Empirical L_Lfh")
+            axes[0, i].plot(t_control, L_Lfh_est[:, i], label="Estimated L_Lfh")
+            axes[0, i].set_title(f"Estimated L_Lfh and emprical L_Lfh over time [Barrier {i}]")
             axes[0, i].grid(True)
             axes[0, i].legend()
             axes[0, i].set_xlabel("Time [s]")
             axes[0, i].set_ylabel("Derivatives [-]")
 
             # L_Lgh and Lgh
-            axes[1, i].plot(t_control, self.data.L_Lgh[:, i], label="L_Lgh")
-            axes[1, i].plot(t_control, Lgh_norm[:, i], label="Lgh")
+            axes[1, i].plot(t_control, empirical_L_Lgh[:, i], label="Empirical L_Lgh")
+            axes[1, i].plot(t_control, L_Lgh_est[:, i], label="Estimated L_Lgh")
             axes[1, i].set_title(f"L_Lgh and Lgh over time [Barrier {i}]")
             axes[1, i].grid(True)
             axes[1, i].legend()

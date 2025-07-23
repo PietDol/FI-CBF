@@ -412,17 +412,19 @@ class Robot:
 
         # apply safety filter to the control input
         # new version
-        u_cbf, h_estimated, h_true, Lfh, Lgh = self.cbf.safety_filter(
-            self._estimated_state, u_nominal, safety_margin, G_constraint, h_constraint
+        u_cbf, h_est, h_true, Lfh_est, Lfh_true, Lgh_est, Lgh_true = self.cbf.safety_filter(
+            self._estimated_state, u_nominal, safety_margin, self._true_state, G_constraint, h_constraint
         )
 
         # add all the data
-        self.visualizer.data.Lfh.append(Lfh)
-        self.visualizer.data.Lgh.append(Lgh)
+        self.visualizer.data.Lfh_est.append(Lfh_est)
+        self.visualizer.data.Lgh_est.append(Lgh_est)
+        self.visualizer.data.Lfh_true.append(Lfh_true)
+        self.visualizer.data.Lgh_true.append(Lgh_true)
         self.visualizer.data.L_Lfh.append(L_Lfh)
         self.visualizer.data.L_Lgh.append(L_Lgh)
         self.visualizer.data.h_true.append(np.array(h_true))
-        self.visualizer.data.h_estimated.append(np.array(h_estimated))
+        self.visualizer.data.h_estimated.append(np.array(h_est))
         self.visualizer.data.u_cbf.append(u_cbf)
         self.visualizer.data.u_nominal.append(u_nominal)
         self.visualizer.data.safety_margin.append(safety_margin)
