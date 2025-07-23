@@ -32,6 +32,7 @@ class Robot:
         cbf_switch_control_diff_thres: float = None,
         cbf_switch_nominal_control_mag: float = None,
         cbf_confidence_config: dict = None,
+        cbf_percentile : float = None,
         noise_cost_gain: float = 0.0,
         goal_tolerance: float = 0.1,
         Kp: float = 0.5,
@@ -121,6 +122,7 @@ class Robot:
         self._cbf_switch_velocity_thres = cbf_switch_velocity_thres
         self._cbf_switch_control_diff_thres = cbf_switch_control_diff_thres
         self._cbf_switch_nominal_control_mag = cbf_switch_nominal_control_mag
+        self._cbf_percentile = np.round(cbf_percentile, 1)  # round for dict key
         self._switch_active = False
         self._env_folder = env_folder
 
@@ -407,7 +409,7 @@ class Robot:
             k=k,
             reachable_set=reachable_set,
             confidence_level=conf_level,
-            percentile=80.0,    # for now we take 80% percentile
+            percentile=self._cbf_percentile,    # for now we take 80% percentile
         )
 
         # apply safety filter to the control input
@@ -514,7 +516,8 @@ class Robot:
             logger.success(f"Goal reached in {t} seconds")
             return True
         else:
-            logger.warning(f"Goal not reached after {t} seconds")
+            distance = np.linalg.norm(self._goal_position - self._true_state[:2])
+            logger.warning(f"Goal not reached after {t} seconds. Distance to goal: {distance} m")
             return False
 
     def plot(self, filename: str):

@@ -361,6 +361,7 @@ class EnvGenerator:
             cbf_switch_control_diff_thres=self.config.cbf_switch_control_diff_thres,
             cbf_switch_nominal_control_mag=self.config.cbf_switch_nominal_control_mag,
             cbf_confidence_config=self.config.cbf_confidence_config,
+            cbf_percentile=self.config.cbf_percentile,
             control_fps=self.config.control_fps,
             state_estimation_fps=self.config.state_estimation_fps,
             goal_tolerance=self.config.goal_tolerance,

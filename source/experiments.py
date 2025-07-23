@@ -186,6 +186,7 @@ if __name__ == "__main__":
             ],  # with of the sigmoid belonging to the corresponding sigma
             "percentiles": [80.0, 100.0]
         },
+        cbf_percentile = 80.0,
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
