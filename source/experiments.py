@@ -201,14 +201,23 @@ if __name__ == "__main__":
     fabric_experiment = FabricEnvironment(env_dir=directory)
     cluttered_experiment = ClutterdEnvironment(env_dir=directory)
 
-    # for now only use fake experiment to set everything up
+    # for now only use fake experiment and experiment_mode 3 to set everything up
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
     experiments = [fake_experiment]
+    # experiment_modes = [0, 1, 2, 3]
+    experiment_modes = [0, 3]
 
     # iterate over the experiments
+    # experiment modes:
+    # 0: Baseline
+    # 1: Global max based on confidence level
+    # 2: Gloabl risk-aware approach based on percentiles
+    # 3: Local risk-aware horizon approach
     for experiment in experiments:
-        env.run_env_from_file(
-            env_file=experiment.env_json_path,
-            env_folder=f"{experiment.experiment_name}",
-        )
+        for i in experiment_modes:
+            env.run_env_from_file(
+                env_file=experiment.env_json_path,
+                env_folder=f"{experiment.experiment_name}_{i}",
+                experiment_mode=i,
+            )
     

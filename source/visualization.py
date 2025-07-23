@@ -14,7 +14,6 @@ class VisualizationData:
         self.h_true = []
         self.h_estimated = []
         self.safety_margin = []
-        self.safety_margin_mrcbf = []
         self.robot_pos = []
         self.robot_pos_estimated = []
         self.robot_vel = []

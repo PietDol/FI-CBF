@@ -11,6 +11,7 @@ import jax
 import jax.numpy as jnp
 import time
 
+
 class Robot:
     def __init__(
         self,
@@ -376,7 +377,7 @@ class Robot:
     #########################################################
     # MAIN METHODS
     #########################################################
-    def control_update(self):
+    def control_update(self, experiment_mode: int):
         # method to apply the control input to the system
         # check if there is a path
         if self._path is None:
@@ -398,19 +399,18 @@ class Robot:
         # calculate the nominal control
         u_nominal = self.pd_controller(target_pos, v_max)
 
-        # calculate the safety margins
+        # calculate the safety margins based on the experiment mode
         safety_margin, L_Lfh, L_Lgh = self.perception.calculate_safety_margin(
+            experiment_mode=experiment_mode,
             noise=noise,
             u_nominal=u_nominal,
             k=k,
             reachable_set=reachable_set,
             confidence_level=conf_level,
         )
-        safety_margin_mrcbf = self.perception.calculate_safety_margin_mrcbf_paper(
-            u_nominal
-        )
 
         # apply safety filter to the control input
+        # new version
         u_cbf, h_estimated, h_true, Lfh, Lgh = self.cbf.safety_filter(
             self._estimated_state, u_nominal, safety_margin, G_constraint, h_constraint
         )
@@ -425,7 +425,6 @@ class Robot:
         self.visualizer.data.u_cbf.append(u_cbf)
         self.visualizer.data.u_nominal.append(u_nominal)
         self.visualizer.data.safety_margin.append(safety_margin)
-        self.visualizer.data.safety_margin_mrcbf.append(safety_margin_mrcbf)
         self.visualizer.data.noise.append(noise)
         self.visualizer.data.v_max.append(v_max)
         self.visualizer.data.k.append(k)
@@ -454,7 +453,7 @@ class Robot:
         self.visualizer.data.robot_pos.append(self._true_state[:2].copy())
         self.visualizer.data.robot_vel.append(self._true_state[2:].copy())
 
-    def run_simulation(self, sim_time: float, env_folder: str):
+    def run_simulation(self, sim_time: float, env_folder: str, experiment_mode: int):
         if self.path is None:
             return None
         self._t_control = 0.0
@@ -468,7 +467,7 @@ class Robot:
         while t < sim_time and not self.check_goal_reached():
             # check order
             if self._t_control < self._t_estimation and t >= self._t_control:
-                self.control_update()
+                self.control_update(experiment_mode)
                 self._t_control += self._control_dt
 
             # check if estimation needs to be updated
@@ -478,7 +477,7 @@ class Robot:
 
             # check if control needs to be updated
             if t >= self._t_control:
-                self.control_update()
+                self.control_update(experiment_mode)
                 self._t_control += self._control_dt
 
             # check for collision

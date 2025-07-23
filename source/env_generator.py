@@ -298,7 +298,9 @@ class EnvGenerator:
         )
         return []
 
-    def _generate_env_elements(self, loaded_env_dir: str = None, env_folder: str = None):
+    def _generate_env_elements(
+        self, loaded_env_dir: str = None, env_folder: str = None
+    ):
         if loaded_env_dir is None:
             # generate the robot object
             robot_x = np.round(random.uniform(-self.x_range, self.x_range), 2)
@@ -381,8 +383,10 @@ class EnvGenerator:
         return robot, obstacles, sensors
 
     @logger.catch
-    def _run_env(self, env_folder, loaded_env_dir=None):
-        robot, obstacles, sensors = self._generate_env_elements(loaded_env_dir, env_folder)
+    def _run_env(self, env_folder, experiment_mode: int, loaded_env_dir=None):
+        robot, obstacles, sensors = self._generate_env_elements(
+            loaded_env_dir, env_folder
+        )
 
         # this is the part where you can change things to see what happens, e.g. add sensors, change fps
         # robot.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
@@ -404,7 +408,9 @@ class EnvGenerator:
         # run the simulation
         start = time.time()
         sim_output = robot.run_simulation(
-            sim_time=self.config.max_duration_of_simulation, env_folder=env_folder
+            sim_time=self.config.max_duration_of_simulation,
+            env_folder=env_folder,
+            experiment_mode=experiment_mode,
         )
         end = time.time()
         logger.success(f"Simulation done in {end - start:.4f} seconds")
@@ -426,14 +432,18 @@ class EnvGenerator:
         robot.plot(filenames)
         return sim_output
 
-    def run_env_from_file(self, env_file: str, env_folder: str):
+    def run_env_from_file(self, env_file: str, env_folder: str, experiment_mode: int):
         # run an environment from a file
         # create folder for this simulation
         env_folder = f"{self.config.work_dir}/simulation_results/{env_folder}"
         os.makedirs(env_folder, exist_ok=True)
 
         # run the env
-        succeed = self._run_env(env_folder=env_folder, loaded_env_dir=env_file)
+        succeed = self._run_env(
+            env_folder=env_folder,
+            loaded_env_dir=env_file,
+            experiment_mode=experiment_mode,
+        )
 
     def __call__(self):
         # check if work_dir is available
@@ -516,13 +526,16 @@ def main():
             "vmax": [1.5, 1.0, 0.5],
             "k": [4.0, 3.0, 2.0],
             "sigma_thresholds": [0.03, 0.07],
-            "deltas": [0.01, 0.01], # with of the sigmoid belonging to the corresponding sigma
+            "deltas": [
+                0.01,
+                0.01,
+            ],  # with of the sigmoid belonging to the corresponding sigma
         },
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
-        Kp=0.5, # 0.5
-        Kd=0.2, # 0.1
+        Kp=0.5,  # 0.5
+        Kd=0.2,  # 0.1
         u_min_max=np.array([-1000, 1000]),
     )
     # config = EnvGeneratorConfig.from_file("./runs/baseline_hard/env_config.json")

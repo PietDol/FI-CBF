@@ -128,57 +128,11 @@ class Perception:
         )
         logger.success("Perception magnitude costmap created")
         self.noise_costmap = self.create_costmap(costmap_type="noise")
-        logger.success("Noise costmap created")
+        logger.success("Noise costmap created")    
 
-    def save_lipschitz_grids(self):
-        L_Lfh_grids_to_save = copy.deepcopy(self.L_Lfh_grids)
-        L_Lgh_grids_to_save = copy.deepcopy(self.L_Lgh_grids)
-
-        # convert the np.arrays to list
-        for level in L_Lfh_grids_to_save.keys():
-            for percentile in L_Lfh_grids_to_save[level].keys():
-                L_Lfh_grids_to_save[level][percentile] = L_Lfh_grids_to_save[level][
-                    percentile
-                ].tolist()
-                L_Lgh_grids_to_save[level][percentile] = L_Lgh_grids_to_save[level][
-                    percentile
-                ].tolist()
-
-        # save all the grids
-        with open(f"{self.env_dir}/L_Lfh_grids.json", "w") as L_Lfh_file:
-            json.dump(L_Lfh_grids_to_save, L_Lfh_file, indent=4)
-        logger.success(
-            f"Lipschitz grid for L_Lfh saved: {self.env_dir}/L_Lfh_grids.json"
-        )
-        with open(f"{self.env_dir}/L_Lgh_grids.json", "w") as L_Lgh_file:
-            json.dump(L_Lgh_grids_to_save, L_Lgh_file, indent=4)
-        logger.success(
-            f"Lipschitz grid for L_Lgh saved: {self.env_dir}/L_Lgh_grids.json"
-        )
-
-    def load_lipschitz_grids(self, load_env_dir):
-        # load saved grids back into the object
-        with open(f"{load_env_dir}/L_Lfh_grids.json", "r") as L_Lfh_file:
-            L_Lfh_grids = json.load(L_Lfh_file)
-        with open(f"{load_env_dir}/L_Lgh_grids.json", "r") as L_Lgh_file:
-            L_Lgh_grids = json.load(L_Lgh_file)
-
-        # convert the lists to numpy array
-        for level in L_Lfh_grids.keys():
-            for percentile in L_Lfh_grids[level].keys():
-                L_Lfh_grids[level][percentile] = np.array(
-                    L_Lfh_grids[level][percentile]
-                )
-                L_Lgh_grids[level][percentile] = np.array(
-                    L_Lgh_grids[level][percentile]
-                )
-
-        # log that loading grids is successfull
-        logger.success(f"Loading Lipschitz grids done")
-
-        # return the numpy grids
-        return L_Lfh_grids, L_Lgh_grids
-
+    #######################################################################
+    # MAIN FUNCTIONS
+    #######################################################################
     def add_sensor(self, sensor: Sensor):
         # add sensor to perception module
         self.sensors.append(sensor)
@@ -194,6 +148,45 @@ class Perception:
             f"Sensor added (pos={sensor.sensor_position}) and perception magnitude and noise costmaps updated"
         )
 
+    def info(self):
+        # function to plot all the information
+        [sensor.info(i) for i, sensor in enumerate(self.sensors)]
+    
+    def calculate_safety_margin(
+        self,
+        experiment_mode: int,
+        noise: float,
+        u_nominal: np.ndarray,
+        k: float,
+        reachable_set: np.ndarray,
+        confidence_level: int,
+    ):
+        # wrapper function to calculate the safety margin, L_Lfh and L_Lgh value
+        # calculate the safety margins based on the experiment mode
+        if experiment_mode == 0:
+            safety_margin, L_Lfh, L_Lgh = self.safety_margin_0(
+                u_nominal
+            )
+        elif experiment_mode == 1:
+            raise NotImplementedError
+        elif experiment_mode == 2:
+            raise NotImplementedError
+        elif experiment_mode == 3:
+            safety_margin, L_Lfh, L_Lgh = self.safety_margin_3(
+                noise=noise,
+                u_nominal=u_nominal,
+                k=k,
+                reachable_set=reachable_set,
+                confidence_level=confidence_level,
+            )
+        else:
+            logger.error(f"Current experiment mode is not supported: {experiment_mode}")
+            raise NotImplementedError
+        
+        return safety_margin, L_Lfh, L_Lgh
+    #######################################################################
+    # HELPER FUNCTIONS
+    #######################################################################
     def get_estimated_state(self, true_state: np.array):
         # function to do the state estimation
         # it adds the given noise to the true state. if the shapes are not the same, the true state is returned
@@ -263,33 +256,122 @@ class Perception:
         epsilon = k * noise
         return epsilon
 
-    def calculate_safety_margin_mrcbf_paper(self, u_nominal: np.ndarray):
-        # safety margin calculation based on the mrcbf paper
-        L_alpha_h = 1.0
+    def _estimate_cbf_lipschitz_constants(
+        self, num_points_per_dim: int = None, Z=None, analyze=False
+    ):
+        if Z is None:
+            Z = self.create_grid_samples(
+                min_vals=self.min_values_state,
+                max_vals=self.max_values_state,
+                num_points_per_dim=num_points_per_dim,
+            )
 
-        # 3 * noise is 99,7% confidence interval so 4 is closer to robust
-        epsilon = 4 * self.max_sensor_noise  # in the paper they use 0.4 for max noise
-        a = (self.L_Lfhs_mrcbf + L_alpha_h) * epsilon
-        b = self.L_Lghs_mrcbf * epsilon
-        safety_margin = a + b * jnp.linalg.norm(u_nominal)
-        return safety_margin
+        # K is the number of barrier functions
+        # m is the size of the controller
+        init_safety_margin = np.zeros(self.cbf.num_cbf)
+        Lfhs = jax.vmap(lambda z: self.cbf.h_and_Lfh(z, init_safety_margin)[1])(
+            Z
+        )  # (N, K)
+        Lghs = jax.vmap(lambda z: self.cbf.Lgh(z, init_safety_margin))(Z)  # (N, K, m)
 
+        def estimate_lipschitz_scalar(values, inputs):
+            """Estimate Lipschitz constant for each scalar output"""
+            N, K = values.shape
+            lipschitz_per_output = []
+
+            for k in range(K):
+                y = values[:, k]  # (N,)
+                diffs_x = inputs[:, None, :] - inputs[None, :, :]
+                diffs_y = y[:, None] - y[None, :]
+
+                dx = jnp.linalg.norm(diffs_x, axis=-1)
+                dx = jnp.where(dx < 1e-6, 1e-6, dx)
+
+                dy = jnp.abs(diffs_y)
+                lipschitz_matrix = dy / dx
+                lipschitz_matrix = jnp.nan_to_num(
+                    lipschitz_matrix, nan=0.0, posinf=0.0, neginf=0.0
+                )
+
+                if analyze:
+                    # add flat values
+                    lipschitz_per_output.append(
+                        jnp.triu(lipschitz_matrix, k=1).flatten()
+                    )
+                else:
+                    # add max value
+                    lipschitz_per_output.append(
+                        jnp.max(jnp.triu(lipschitz_matrix, k=1))
+                    )
+
+            return jnp.array(lipschitz_per_output)
+
+        def estimate_lipschitz_vector(values, inputs):
+            """Estimate Lipschitz constant per vector-valued output (max over control dim)"""
+            N, K, m = values.shape
+            lipschitz_per_barrier = []
+
+            for k in range(K):
+                y = values[:, k, :]  # (N, m)
+                diffs_x = inputs[:, None, :] - inputs[None, :, :]  # (N, N, D)
+                diffs_y = y[:, None, :] - y[None, :, :]  # (N, N, m)
+
+                dx = jnp.linalg.norm(diffs_x, axis=-1)
+                dx = jnp.where(dx < 1e-6, 1e-6, dx)
+
+                dy = jnp.linalg.norm(diffs_y, axis=-1)  # vector norm over control dim
+                lipschitz_matrix = dy / dx
+                lipschitz_matrix = jnp.nan_to_num(
+                    lipschitz_matrix, nan=0.0, posinf=0.0, neginf=0.0
+                )
+
+                # return output based on mode
+                if analyze:
+                    # add flat values
+                    lipschitz_per_barrier.append(
+                        jnp.triu(lipschitz_matrix, k=1).flatten()
+                    )
+                else:
+                    # add max value
+                    lipschitz_per_barrier.append(
+                        jnp.max(jnp.triu(lipschitz_matrix, k=1))
+                    )
+
+            return jnp.array(lipschitz_per_barrier)
+
+        L_Lfh = estimate_lipschitz_scalar(Lfhs, Z)  # * 0.3  # (K,)
+        L_Lgh = estimate_lipschitz_vector(Lghs, Z)  # * 0.3  # (K,)
+
+        # only print if we are not analyzing
+        if not analyze:
+            logger.info(f"L_Lfh per barrier: {L_Lfh}")
+            logger.info(f"L_Lgh per barrier: {L_Lgh}")
+
+        return np.array(L_Lfh), np.array(L_Lgh)
+    
+    #######################################################################
+    # PRECALCULATIONS FOR THE SAFETY MARGINS
+    #######################################################################
     def mrcbf_lipschitz_constants(self):
         # lipschitz constants are absolute maximum value
         L_Lfhs, L_Lghs = [], []
 
         # helper functions
-        def is_square_fully_inside_circle(square_center, square_size, circle_center, circle_radius):
+        def is_square_fully_inside_circle(
+            square_center, square_size, circle_center, circle_radius
+        ):
             half_size = square_size / 2
 
             # Compute the coordinates of the square corners
-            corners = np.array([
-                square_center + [-half_size, -half_size],
-                square_center + [-half_size,  half_size],
-                square_center + [ half_size, -half_size],
-                square_center + [ half_size,  half_size],
-            ])
-            
+            corners = np.array(
+                [
+                    square_center + [-half_size, -half_size],
+                    square_center + [-half_size, half_size],
+                    square_center + [half_size, -half_size],
+                    square_center + [half_size, half_size],
+                ]
+            )
+
             # Check if all corners are within the circle
             distances = np.linalg.norm(corners - circle_center, axis=1)
             return np.all(distances <= circle_radius)
@@ -297,18 +379,10 @@ class Perception:
         # make sure that the grids inside the obstacles are not taken into account
         for i, obstacle in enumerate(self.obstacles):
             # get max values in world coordinates
-            x_min = obstacle.pos_center[0] - (
-                obstacle.radius + obstacle.robot_radius
-            )
-            x_max = obstacle.pos_center[0] + (
-                obstacle.radius + obstacle.robot_radius
-            )
-            y_min = obstacle.pos_center[1] - (
-                obstacle.radius + obstacle.robot_radius
-            )
-            y_max = obstacle.pos_center[1] + (
-                obstacle.radius + obstacle.robot_radius
-            )
+            x_min = obstacle.pos_center[0] - (obstacle.radius + obstacle.robot_radius)
+            x_max = obstacle.pos_center[0] + (obstacle.radius + obstacle.robot_radius)
+            y_min = obstacle.pos_center[1] - (obstacle.radius + obstacle.robot_radius)
+            y_max = obstacle.pos_center[1] + (obstacle.radius + obstacle.robot_radius)
 
             origin_offset = np.array(self.costmap_size) / 2
             # convert to indices of the grid
@@ -322,16 +396,18 @@ class Perception:
             if isinstance(obstacle, RectangleObstacle):
                 raise NotImplementedError
             elif isinstance(obstacle, CircleObstacle):
-                for col in range(col_min_ind, col_max_ind+1):
-                    for row in range(row_min_ind, row_max_ind+1):
-                        square_center = np.array([row, col])[::-1] + 0.5 - origin_offset 
-                        mask[row, col] = not(is_square_fully_inside_circle(
-                            square_center=square_center,
-                            square_size=1.0,
-                            circle_center=obstacle.pos_center,
-                            circle_radius=obstacle.radius
-                        ))
-            
+                for col in range(col_min_ind, col_max_ind + 1):
+                    for row in range(row_min_ind, row_max_ind + 1):
+                        square_center = np.array([row, col])[::-1] + 0.5 - origin_offset
+                        mask[row, col] = not (
+                            is_square_fully_inside_circle(
+                                square_center=square_center,
+                                square_size=1.0,
+                                circle_center=obstacle.pos_center,
+                                circle_radius=obstacle.radius,
+                            )
+                        )
+
             # only take max of values which are not inside obstacles
             L_Lfhs.append(np.amax(self.L_Lfh_grids["1"]["100"][:, :, i][mask]))
             L_Lghs.append(np.amax(self.L_Lgh_grids["1"]["100"][:, :, i][mask]))
@@ -343,153 +419,6 @@ class Perception:
         logger.info(f"L_Lghs MRCBF: {L_Lghs}")
 
         return L_Lfhs, L_Lghs
-
-    def calculate_safety_margin(
-        self,
-        noise: float,
-        u_nominal: np.ndarray,
-        k: float,
-        reachable_set: np.ndarray,
-        confidence_level: int,
-    ):
-        # Converts the uncertainty to the safety margin that needs to be used by the CBFs to
-        # account for estimation uncertainty. Epsilon is upper bound on estimation error
-        # Assume alpha(h) = h, so L_alpha_h = 1
-        L_alpha_h = 1.0
-
-        # calculate epsilon in the paper they use eps=0.4
-        epsilon = self.get_epsilon(noise, k)
-
-        # calculate the lipschitz constants based on the grid
-        # get the indices of the grid
-        indices = []
-        origin_offset = np.array(self.costmap_size) / 2
-        for x in reachable_set[0]:
-            for y in reachable_set[1]:
-                grid = np.floor(np.array([x, y]) + origin_offset).astype(int)
-                indices.append(grid[::-1])
-        indices = np.array(indices)  # (4, 2)
-
-        # calculate the range of the indices
-        row_min, col_min = np.amin(indices, axis=0)
-        row_max, col_max = np.amax(indices, axis=0)
-        rows = np.arange(
-            max(row_min, 0), min(row_max + 1, self.costmap_size[0] - 1)
-        )  # +1 because the stop must be included
-        cols = np.arange(
-            max(col_min, 0), min(col_max + 1, self.costmap_size[1] - 1)
-        )  # +1 because the stop must be included
-
-        # get the lipschitz values from the grid
-        # for now tak 80% percentile
-        L_Lfhs, L_Lghs = [], []
-        for i in rows:
-            for j in cols:
-                L_Lfhs.append(self.L_Lfh_grids[f"{confidence_level}"]["80"][i, j])
-                L_Lghs.append(self.L_Lgh_grids[f"{confidence_level}"]["80"][i, j])
-        L_Lfh = np.amax(np.array(L_Lfhs), axis=0)
-        L_Lgh = np.amax(np.array(L_Lghs), axis=0)
-
-        # calculate the new safety margin
-        a = (L_Lfh + L_alpha_h) * epsilon
-        b = L_Lgh * epsilon
-        safety_margin = a + b * jnp.linalg.norm(u_nominal)
-        return safety_margin, L_Lfh, L_Lgh
-
-    def plot_lipschitz_grids(
-        self,
-        x_domain: np.ndarray,
-        y_domain: np.ndarray,
-    ):
-        # plot the grids
-        # some parameters
-        num_barriers = self.cbf.num_cbf
-        cell_grid = self.costmap_size
-        lipschitz_dir = f"{self.env_dir}/lipschitz_constants_grid"
-        extent = [x_domain[0], x_domain[-1], y_domain[0], y_domain[-1]]
-
-        # create dirs for visuals
-        os.makedirs(f"{lipschitz_dir}/visuals", exist_ok=True)
-
-        # iterate over the grids
-        for confidence_key, percentiles_dict in self.L_Lfh_grids.items():
-            for percentile_key in percentiles_dict.keys():
-                for i in range(num_barriers):
-                    # create the figure
-                    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
-                    # L_Lfh
-                    im1 = axes[0].imshow(
-                        self.L_Lfh_grids[confidence_key][percentile_key][:, :, i],
-                        origin="lower",
-                        extent=extent,
-                        cmap="Blues",
-                    )
-                    axes[0].set_title(
-                        f"L_Lfh {percentile_key}% percentile grid [Barrier {i}]"
-                    )
-                    axes[0].grid(True)
-                    axes[0].axis("equal")
-                    fig.colorbar(im1, ax=axes[0])
-
-                    # annotate each cell with the max value
-                    for xi in range(cell_grid[1]):
-                        for yi in range(cell_grid[0]):
-                            # Get center of cell
-                            x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
-                            y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
-                            val = self.L_Lfh_grids[confidence_key][percentile_key][
-                                yi, xi, i
-                            ]
-                            axes[0].text(
-                                x_mid,
-                                y_mid,
-                                f"{val:.2f}",
-                                color="black",
-                                ha="center",
-                                va="center",
-                                fontsize=5,
-                            )
-
-                    # L_Lgh
-                    im2 = axes[1].imshow(
-                        self.L_Lgh_grids[confidence_key][percentile_key][:, :, i],
-                        origin="lower",
-                        extent=extent,
-                        cmap="Oranges",
-                    )
-                    axes[1].set_title(
-                        f"L_Lgh {percentile_key}% percentile grid [Barrier {i}]"
-                    )
-                    axes[1].grid(True)
-                    axes[1].axis("equal")
-                    fig.colorbar(im2, ax=axes[1])
-
-                    # annotate each cell with the max value
-                    for xi in range(cell_grid[1]):
-                        for yi in range(cell_grid[0]):
-                            x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
-                            y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
-                            val = self.L_Lgh_grids[confidence_key][percentile_key][
-                                yi, xi, i
-                            ]
-                            axes[1].text(
-                                x_mid,
-                                y_mid,
-                                f"{val:.2f}",
-                                color="black",
-                                ha="center",
-                                va="center",
-                                fontsize=5,
-                            )
-
-                    plt.tight_layout()
-                    plt.savefig(
-                        f"{lipschitz_dir}/visuals/grid_{confidence_key}_{percentile_key}_barrier_{i}.png"
-                    )
-                    plt.close()
-                    logger.success(
-                        f"Grid for confidence {confidence_key}, {percentile_key}% and barrier {i} saved: {lipschitz_dir}/visuals/grid_{confidence_key}_{percentile_key}_barrier_{i}.png"
-                    )
 
     def create_lipschitz_grid(
         self,
@@ -616,105 +545,230 @@ class Perception:
             )
 
         return L_Lfh_grid, L_Lgh_grid
+    
+    def save_lipschitz_grids(self):
+        L_Lfh_grids_to_save = copy.deepcopy(self.L_Lfh_grids)
+        L_Lgh_grids_to_save = copy.deepcopy(self.L_Lgh_grids)
 
-    def _estimate_cbf_lipschitz_constants(
-        self, num_points_per_dim: int = None, Z=None, analyze=False
+        # convert the np.arrays to list
+        for level in L_Lfh_grids_to_save.keys():
+            for percentile in L_Lfh_grids_to_save[level].keys():
+                L_Lfh_grids_to_save[level][percentile] = L_Lfh_grids_to_save[level][
+                    percentile
+                ].tolist()
+                L_Lgh_grids_to_save[level][percentile] = L_Lgh_grids_to_save[level][
+                    percentile
+                ].tolist()
+
+        # save all the grids
+        with open(f"{self.env_dir}/L_Lfh_grids.json", "w") as L_Lfh_file:
+            json.dump(L_Lfh_grids_to_save, L_Lfh_file, indent=4)
+        logger.success(
+            f"Lipschitz grid for L_Lfh saved: {self.env_dir}/L_Lfh_grids.json"
+        )
+        with open(f"{self.env_dir}/L_Lgh_grids.json", "w") as L_Lgh_file:
+            json.dump(L_Lgh_grids_to_save, L_Lgh_file, indent=4)
+        logger.success(
+            f"Lipschitz grid for L_Lgh saved: {self.env_dir}/L_Lgh_grids.json"
+        )
+
+    def load_lipschitz_grids(self, load_env_dir):
+        # load saved grids back into the object
+        with open(f"{load_env_dir}/L_Lfh_grids.json", "r") as L_Lfh_file:
+            L_Lfh_grids = json.load(L_Lfh_file)
+        with open(f"{load_env_dir}/L_Lgh_grids.json", "r") as L_Lgh_file:
+            L_Lgh_grids = json.load(L_Lgh_file)
+
+        # convert the lists to numpy array
+        for level in L_Lfh_grids.keys():
+            for percentile in L_Lfh_grids[level].keys():
+                L_Lfh_grids[level][percentile] = np.array(
+                    L_Lfh_grids[level][percentile]
+                )
+                L_Lgh_grids[level][percentile] = np.array(
+                    L_Lgh_grids[level][percentile]
+                )
+
+        # log that loading grids is successfull
+        logger.success(f"Loading Lipschitz grids done")
+
+        # return the numpy grids
+        return L_Lfh_grids, L_Lgh_grids
+
+    def plot_lipschitz_grids(
+        self,
+        x_domain: np.ndarray,
+        y_domain: np.ndarray,
     ):
-        if Z is None:
-            Z = self.create_grid_samples(
-                min_vals=self.min_values_state,
-                max_vals=self.max_values_state,
-                num_points_per_dim=num_points_per_dim,
-            )
+        # plot the grids
+        # some parameters
+        num_barriers = self.cbf.num_cbf
+        cell_grid = self.costmap_size
+        lipschitz_dir = f"{self.env_dir}/lipschitz_constants_grid"
+        extent = [x_domain[0], x_domain[-1], y_domain[0], y_domain[-1]]
 
-        # K is the number of barrier functions
-        # m is the size of the controller
-        init_safety_margin = np.zeros(self.cbf.num_cbf)
-        Lfhs = jax.vmap(lambda z: self.cbf.h_and_Lfh(z, init_safety_margin)[1])(
-            Z
-        )  # (N, K)
-        Lghs = jax.vmap(lambda z: self.cbf.Lgh(z, init_safety_margin))(Z)  # (N, K, m)
+        # create dirs for visuals
+        os.makedirs(f"{lipschitz_dir}/visuals", exist_ok=True)
 
-        def estimate_lipschitz_scalar(values, inputs):
-            """Estimate Lipschitz constant for each scalar output"""
-            N, K = values.shape
-            lipschitz_per_output = []
-
-            for k in range(K):
-                y = values[:, k]  # (N,)
-                diffs_x = inputs[:, None, :] - inputs[None, :, :]
-                diffs_y = y[:, None] - y[None, :]
-
-                dx = jnp.linalg.norm(diffs_x, axis=-1)
-                dx = jnp.where(dx < 1e-6, 1e-6, dx)
-
-                dy = jnp.abs(diffs_y)
-                lipschitz_matrix = dy / dx
-                lipschitz_matrix = jnp.nan_to_num(
-                    lipschitz_matrix, nan=0.0, posinf=0.0, neginf=0.0
-                )
-
-                if analyze:
-                    # add flat values
-                    lipschitz_per_output.append(
-                        jnp.triu(lipschitz_matrix, k=1).flatten()
+        # iterate over the grids
+        for confidence_key, percentiles_dict in self.L_Lfh_grids.items():
+            for percentile_key in percentiles_dict.keys():
+                for i in range(num_barriers):
+                    # create the figure
+                    fig, axes = plt.subplots(2, 1, figsize=(12, 10))
+                    # L_Lfh
+                    im1 = axes[0].imshow(
+                        self.L_Lfh_grids[confidence_key][percentile_key][:, :, i],
+                        origin="lower",
+                        extent=extent,
+                        cmap="Blues",
                     )
-                else:
-                    # add max value
-                    lipschitz_per_output.append(
-                        jnp.max(jnp.triu(lipschitz_matrix, k=1))
+                    axes[0].set_title(
+                        f"L_Lfh {percentile_key}% percentile grid [Barrier {i}]"
                     )
+                    axes[0].grid(True)
+                    axes[0].axis("equal")
+                    fig.colorbar(im1, ax=axes[0])
 
-            return jnp.array(lipschitz_per_output)
+                    # annotate each cell with the max value
+                    for xi in range(cell_grid[1]):
+                        for yi in range(cell_grid[0]):
+                            # Get center of cell
+                            x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
+                            y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
+                            val = self.L_Lfh_grids[confidence_key][percentile_key][
+                                yi, xi, i
+                            ]
+                            axes[0].text(
+                                x_mid,
+                                y_mid,
+                                f"{val:.2f}",
+                                color="black",
+                                ha="center",
+                                va="center",
+                                fontsize=5,
+                            )
 
-        def estimate_lipschitz_vector(values, inputs):
-            """Estimate Lipschitz constant per vector-valued output (max over control dim)"""
-            N, K, m = values.shape
-            lipschitz_per_barrier = []
-
-            for k in range(K):
-                y = values[:, k, :]  # (N, m)
-                diffs_x = inputs[:, None, :] - inputs[None, :, :]  # (N, N, D)
-                diffs_y = y[:, None, :] - y[None, :, :]  # (N, N, m)
-
-                dx = jnp.linalg.norm(diffs_x, axis=-1)
-                dx = jnp.where(dx < 1e-6, 1e-6, dx)
-
-                dy = jnp.linalg.norm(diffs_y, axis=-1)  # vector norm over control dim
-                lipschitz_matrix = dy / dx
-                lipschitz_matrix = jnp.nan_to_num(
-                    lipschitz_matrix, nan=0.0, posinf=0.0, neginf=0.0
-                )
-
-                # return output based on mode
-                if analyze:
-                    # add flat values
-                    lipschitz_per_barrier.append(
-                        jnp.triu(lipschitz_matrix, k=1).flatten()
+                    # L_Lgh
+                    im2 = axes[1].imshow(
+                        self.L_Lgh_grids[confidence_key][percentile_key][:, :, i],
+                        origin="lower",
+                        extent=extent,
+                        cmap="Oranges",
                     )
-                else:
-                    # add max value
-                    lipschitz_per_barrier.append(
-                        jnp.max(jnp.triu(lipschitz_matrix, k=1))
+                    axes[1].set_title(
+                        f"L_Lgh {percentile_key}% percentile grid [Barrier {i}]"
                     )
+                    axes[1].grid(True)
+                    axes[1].axis("equal")
+                    fig.colorbar(im2, ax=axes[1])
 
-            return jnp.array(lipschitz_per_barrier)
+                    # annotate each cell with the max value
+                    for xi in range(cell_grid[1]):
+                        for yi in range(cell_grid[0]):
+                            x_mid = 0.5 * (x_domain[xi] + x_domain[xi + 1])
+                            y_mid = 0.5 * (y_domain[yi] + y_domain[yi + 1])
+                            val = self.L_Lgh_grids[confidence_key][percentile_key][
+                                yi, xi, i
+                            ]
+                            axes[1].text(
+                                x_mid,
+                                y_mid,
+                                f"{val:.2f}",
+                                color="black",
+                                ha="center",
+                                va="center",
+                                fontsize=5,
+                            )
 
-        L_Lfh = estimate_lipschitz_scalar(Lfhs, Z)  # * 0.3  # (K,)
-        L_Lgh = estimate_lipschitz_vector(Lghs, Z)  # * 0.3  # (K,)
+                    plt.tight_layout()
+                    plt.savefig(
+                        f"{lipschitz_dir}/visuals/grid_{confidence_key}_{percentile_key}_barrier_{i}.png"
+                    )
+                    plt.close()
+                    logger.success(
+                        f"Grid for confidence {confidence_key}, {percentile_key}% and barrier {i} saved: {lipschitz_dir}/visuals/grid_{confidence_key}_{percentile_key}_barrier_{i}.png"
+                    )
+    
+    #######################################################################
+    # DIFFERENT SAFETY MARGIN MODES
+    #######################################################################
+    def safety_margin_0(self, u_nominal: np.ndarray):
+        # mode 0: baseline mrcbf paper
+        # safety margin calculation based on the mrcbf paper
+        L_alpha_h = 1.0
 
-        # only print if we are not analyzing
-        if not analyze:
-            logger.info(f"L_Lfh per barrier: {L_Lfh}")
-            logger.info(f"L_Lgh per barrier: {L_Lgh}")
+        # 3 * noise is 99,7% confidence interval so 4 is closer to robust
+        epsilon = 4 * self.max_sensor_noise  # in the paper they use 0.4 for max noise
+        a = (self.L_Lfhs_mrcbf + L_alpha_h) * epsilon
+        b = self.L_Lghs_mrcbf * epsilon
+        safety_margin = a + b * jnp.linalg.norm(u_nominal)
+        return safety_margin, self.L_Lfhs_mrcbf, self.L_Lghs_mrcbf
+    
+    def safety_margin_1(self):
+        # mode 1: global maximum based on the confidence level
+        raise NotImplementedError
 
-        return np.array(L_Lfh), np.array(L_Lgh)
+    def safety_margin_2(self):
+        # mode 2: risk aware approach with global maximum on the percentiles
+        raise NotImplementedError
 
-    def info(self):
-        # function to plot all the information
-        [sensor.info(i) for i, sensor in enumerate(self.sensors)]
+    def safety_margin_3(
+        self,
+        noise: float,
+        u_nominal: np.ndarray,
+        k: float,
+        reachable_set: np.ndarray,
+        confidence_level: int,
+    ):
+        # mode 3: risk aware horizon approach
+        # Converts the uncertainty to the safety margin that needs to be used by the CBFs to
+        # account for estimation uncertainty. Epsilon is upper bound on estimation error
+        # Assume alpha(h) = h, so L_alpha_h = 1
+        L_alpha_h = 1.0
 
-    # costmap part
+        # calculate epsilon in the paper they use eps=0.4
+        epsilon = self.get_epsilon(noise, k)
+
+        # calculate the lipschitz constants based on the grid
+        # get the indices of the grid
+        indices = []
+        origin_offset = np.array(self.costmap_size) / 2
+        for x in reachable_set[0]:
+            for y in reachable_set[1]:
+                grid = np.floor(np.array([x, y]) + origin_offset).astype(int)
+                indices.append(grid[::-1])
+        indices = np.array(indices)  # (4, 2)
+
+        # calculate the range of the indices
+        row_min, col_min = np.amin(indices, axis=0)
+        row_max, col_max = np.amax(indices, axis=0)
+        rows = np.arange(
+            max(row_min, 0), min(row_max + 1, self.costmap_size[0] - 1)
+        )  # +1 because the stop must be included
+        cols = np.arange(
+            max(col_min, 0), min(col_max + 1, self.costmap_size[1] - 1)
+        )  # +1 because the stop must be included
+
+        # get the lipschitz values from the grid
+        # for now tak 80% percentile
+        L_Lfhs, L_Lghs = [], []
+        for i in rows:
+            for j in cols:
+                L_Lfhs.append(self.L_Lfh_grids[f"{confidence_level}"]["80"][i, j])
+                L_Lghs.append(self.L_Lgh_grids[f"{confidence_level}"]["80"][i, j])
+        L_Lfh = np.amax(np.array(L_Lfhs), axis=0)
+        L_Lgh = np.amax(np.array(L_Lghs), axis=0)
+
+        # calculate the new safety margin
+        a = (L_Lfh + L_alpha_h) * epsilon
+        b = L_Lgh * epsilon
+        safety_margin = a + b * jnp.linalg.norm(u_nominal)
+        return safety_margin, L_Lfh, L_Lgh
+
+    #######################################################################
+    # COSTMAP PART
+    #######################################################################
     def grid_to_world(self, idx):
         # Convert grid index (row, col) to world coordinate (x, y) in meters. It returns the center of the grid.
         ij = np.array(idx[::-1])
