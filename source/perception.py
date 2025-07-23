@@ -107,6 +107,9 @@ class Perception:
         # save the lipschitz grids
         self.save_lipschitz_grids()
 
+        # calculate the maximum difference in the grid
+        self.max_L_Lfh_diff, self.max_L_Lgh_diff = self.calculate_max_lipschitz_grid_diff()
+
         # create lipschitz consants for different experiment modes
         self.L_Lfhs, self.L_Lghs = self.calculate_lipschitz_constants()
 
@@ -182,7 +185,7 @@ class Perception:
                 u_nominal=u_nominal,
                 k=k,
                 confidence_level=confidence_level,
-                percentile=percentile
+                percentile=percentile,
             )
         elif experiment_mode == 3:
             safety_margin, L_Lfh, L_Lgh = self.safety_margin_3(
@@ -191,7 +194,7 @@ class Perception:
                 k=k,
                 reachable_set=reachable_set,
                 confidence_level=confidence_level,
-                percentile=percentile
+                percentile=percentile,
             )
         else:
             logger.error(f"Current experiment mode is not supported: {experiment_mode}")
@@ -388,9 +391,37 @@ class Perception:
         # helper function to calculate the lipschitz constants for given confidence level and percentile
         L_Lfhs, L_Lghs = [], []
         percentile = np.round(percentile, 1)
+        obstacle_masks = self.create_obstacle_masks()
 
         # make sure that the grids inside the obstacles are not taken into account
-        for i, obstacle in enumerate(self.obstacles):
+        for i in range(len(self.obstacles)):
+            # only take max of values which are not inside obstacles
+            L_Lfhs.append(
+                np.amax(
+                    self.L_Lfh_grids[f"{confidence_level}"][f"{percentile}"][:, :, i][
+                        obstacle_masks[i]
+                    ]
+                )
+            )
+            L_Lghs.append(
+                np.amax(
+                    self.L_Lgh_grids[f"{confidence_level}"][f"{percentile}"][:, :, i][
+                        obstacle_masks[i]
+                    ]
+                )
+            )
+
+        # convert to numpy and log values
+        L_Lfhs = np.array(L_Lfhs)
+        L_Lghs = np.array(L_Lghs)
+
+        return L_Lfhs, L_Lghs
+
+    def create_obstacle_masks(self):
+        # function to create the masks of obstacles
+        masks = []
+        # make sure that the grids inside the obstacles are not taken into account
+        for obstacle in self.obstacles:
             # get max values in world coordinates
             x_min = obstacle.pos_center[0] - (obstacle.radius + obstacle.robot_radius)
             x_max = obstacle.pos_center[0] + (obstacle.radius + obstacle.robot_radius)
@@ -406,7 +437,7 @@ class Perception:
 
             # create mask
             mask = np.ones(
-                self.L_Lfh_grids[f"{confidence_level}"][f"{percentile}"].shape[:2],
+                self.L_Lfh_grids[f"1"][f"100.0"].shape[:2],
                 dtype=bool,
             )
             if isinstance(obstacle, RectangleObstacle):
@@ -424,34 +455,53 @@ class Perception:
                             )
                         )
 
-            # only take max of values which are not inside obstacles
-            L_Lfhs.append(
-                np.amax(
-                    self.L_Lfh_grids[f"{confidence_level}"][f"{percentile}"][:, :, i][
-                        mask
-                    ]
-                )
-            )
-            L_Lghs.append(
-                np.amax(
-                    self.L_Lgh_grids[f"{confidence_level}"][f"{percentile}"][:, :, i][
-                        mask
-                    ]
-                )
-            )
+            # add the mask to the masks
+            masks.append(mask)
+        
+        # convert to numpy and return it
+        masks = np.array(masks)
+        return masks
 
-        # convert to numpy and log values
-        L_Lfhs = np.array(L_Lfhs)
-        L_Lghs = np.array(L_Lghs)
+    @staticmethod
+    def calculate_max_diff_grid(grid, mask):
+        # Compute the maximum difference between adjacent grid cells,
+        # considering only those where both involved cells are marked True in the mask.
+        diffs = []
 
-        return L_Lfhs, L_Lghs
+        # Horizontal (left-right)
+        valid_h = mask[:, :-1] & mask[:, 1:]
+        diff_h = np.abs(grid[:, :-1] - grid[:, 1:])
+        diffs.append(diff_h[valid_h])
+
+        # Vertical (top-bottom)
+        valid_v = mask[:-1, :] & mask[1:, :]
+        diff_v = np.abs(grid[:-1, :] - grid[1:, :])
+        diffs.append(diff_v[valid_v])
+
+        # Diagonal ↘
+        valid_d1 = mask[:-1, :-1] & mask[1:, 1:]
+        diff_d1 = np.abs(grid[:-1, :-1] - grid[1:, 1:])
+        diffs.append(diff_d1[valid_d1])
+
+        # Diagonal ↙
+        valid_d2 = mask[:-1, 1:] & mask[1:, :-1]
+        diff_d2 = np.abs(grid[:-1, 1:] - grid[1:, :-1])
+        diffs.append(diff_d2[valid_d2])
+
+        # Concatenate all valid diffs and compute max
+        if any(d.size > 0 for d in diffs):
+            max_diff = np.max(np.concatenate([d for d in diffs if d.size > 0]))
+        else:
+            logger.error("Not able to calculate the maximum difference in the Lipschitz grid!")
+
+        return max_diff
 
     #######################################################################
     # PRECALCULATIONS FOR THE SAFETY MARGINS
     #######################################################################
     def calculate_lipschitz_constants(self):
         # function to calculate the lipschitz constants for experiment mode 0, 1 and 2
-        # create the dict to store values for each experiment mode
+        # create the dict to store values for each experiment mode -> also dict with list for saving
         L_Lfhs = {
             0: None,
             1: {},
@@ -462,10 +512,24 @@ class Perception:
             1: {},
             2: {},
         }
+        L_Lfhs_save = {
+            0: None,
+            1: {},
+            2: {},
+        }
+        L_Lghs_save = {
+            0: None,
+            1: {},
+            2: {},
+        }
 
         # experiment mode 0:
         # lipschitz constants are absolute maximum value -> level 1, percentile 100
-        L_Lfhs[0], L_Lghs[0] = self._lipschitz_constant_helper(1, 100.0)
+        L_Lfhs_0, L_Lghs_0 = self._lipschitz_constant_helper(1, 100.0)
+        L_Lfhs[0] = L_Lfhs_0
+        L_Lghs[0] = L_Lghs_0
+        L_Lfhs_save[0] = L_Lfhs_0.tolist()
+        L_Lghs_save[0] = L_Lghs_0.tolist()
 
         # experiment mode 1:
         # iterate over the confidence level and take max value -> percentile 100
@@ -473,20 +537,41 @@ class Perception:
             L_Lfhs_1, L_Lghs_1 = self._lipschitz_constant_helper(conf_level, 100.0)
             L_Lfhs[1][conf_level] = L_Lfhs_1
             L_Lghs[1][conf_level] = L_Lghs_1
+            L_Lfhs_save[1][conf_level] = L_Lfhs_1.tolist()
+            L_Lghs_save[1][conf_level] = L_Lghs_1.tolist()
 
         # experiment mode 2:
         # iterate over the confidence level and percentile
         for conf_level in self.conf_levels:
             conf_dict_L_Lfh, conf_dict_L_Lgh = {}, {}
+            conf_dict_L_Lfh_save, conf_dict_L_Lgh_save = {}, {}
             for percentile in self.percentiles:
                 percentile = np.round(percentile, 1)
-                conf_dict_L_Lfh[f"{percentile}"], conf_dict_L_Lgh[f"{percentile}"] = (
+                L_Lfhs_2, L_Lghs_2 = (
                     self._lipschitz_constant_helper(conf_level, percentile)
                 )
-            
+                conf_dict_L_Lfh[f"{percentile}"] = L_Lfhs_2
+                conf_dict_L_Lgh[f"{percentile}"] = L_Lghs_2
+                conf_dict_L_Lfh_save[f"{percentile}"] = L_Lfhs_2.tolist()
+                conf_dict_L_Lgh_save[f"{percentile}"] = L_Lghs_2.tolist()
+
             # add dict for confidence to L_Lfhs and L_Lghs
             L_Lfhs[2][conf_level] = conf_dict_L_Lfh
             L_Lghs[2][conf_level] = conf_dict_L_Lgh
+            L_Lfhs_save[2][conf_level] = conf_dict_L_Lfh_save
+            L_Lghs_save[2][conf_level] = conf_dict_L_Lgh_save
+
+        # save the dicts in the env folder
+        with open(f"{self.env_dir}/L_Lfh_constants.json", "w") as L_Lfh_file:
+            json.dump(L_Lfhs_save, L_Lfh_file, indent=4)
+        logger.success(
+            f"L_Lfh for experiment 0, 1, and 2 saved: {self.env_dir}/L_Lfh_constants.json"
+        )
+        with open(f"{self.env_dir}/L_Lgh_constants.json", "w") as L_Lgh_file:
+            json.dump(L_Lghs_save, L_Lgh_file, indent=4)
+        logger.success(
+            f"L_Lgh for experiment 0, 1, and 2 saved: {self.env_dir}/L_Lgh_constants.json"
+        )
 
         # log the values in the terminal
         logger.info(f"L_Lfhs: {L_Lfhs}")
@@ -620,6 +705,69 @@ class Perception:
             )
 
         return L_Lfh_grid, L_Lgh_grid
+
+    def calculate_max_lipschitz_grid_diff(self):
+        # function to calculate the maximum difference in the grids
+        num_obstacles = len(self.obstacles)
+        max_L_Lfh_diff, max_L_Lgh_diff = {}, {}
+        obstacle_masks = self.create_obstacle_masks()
+
+        # iterate over confidence levels and percentiles to get all the differences
+        for conf_level in self.conf_levels:
+            max_L_Lfh_diff_conf, max_L_Lgh_conf = {}, {}
+            for percentile in self.percentiles:
+                # set some parameters
+                percentile = np.round(percentile, 1)
+                _max_L_Lfh_diff, _max_L_Lgh_diff = np.zeros(num_obstacles), np.zeros(
+                    num_obstacles
+                )
+
+                # iterate over the obstacles
+                for i in range(num_obstacles):
+                    # extract the grids
+                    L_Lfh_grid = self.L_Lfh_grids[f"{conf_level}"][f"{percentile}"][:, :, i]
+                    L_Lgh_grid = self.L_Lgh_grids[f"{conf_level}"][f"{percentile}"][:, :, i]
+
+                    # calculate the maximum difference
+                    _max_L_Lfh_diff[i] = self.calculate_max_diff_grid(L_Lfh_grid, obstacle_masks[i])
+                    _max_L_Lgh_diff[i] = self.calculate_max_diff_grid(L_Lgh_grid, obstacle_masks[i])
+
+                # add to dicts
+                max_L_Lfh_diff_conf[f"{percentile}"] = _max_L_Lfh_diff
+                max_L_Lgh_conf[f"{percentile}"] = _max_L_Lgh_diff
+
+            # add dict to overall dict
+            max_L_Lfh_diff[conf_level] = max_L_Lfh_diff_conf
+            max_L_Lgh_diff[conf_level] = max_L_Lgh_conf
+
+        # save the dictionaries
+        max_L_Lfh_diff_save = copy.deepcopy(max_L_Lfh_diff)
+        max_L_Lgh_diff_save = copy.deepcopy(max_L_Lgh_diff)
+
+        # convert to list
+        for conf_level in max_L_Lfh_diff_save.keys():
+            for percentile in max_L_Lfh_diff_save[conf_level].keys():
+                max_L_Lfh_diff_save[conf_level][percentile] = max_L_Lfh_diff_save[
+                    conf_level
+                ][percentile].tolist()
+                max_L_Lgh_diff_save[conf_level][percentile] = max_L_Lgh_diff_save[
+                    conf_level
+                ][percentile].tolist()
+        
+        # and save it
+        with open(f"{self.env_dir}/L_Lfh_grid_diffs.json", "w") as L_Lfh_file:
+            json.dump(max_L_Lfh_diff_save, L_Lfh_file, indent=4)
+        logger.success(
+            f"Max Lipschitz grid diff for L_Lfh saved: {self.env_dir}/L_Lfh_grid_diffs.json"
+        )
+        with open(f"{self.env_dir}/L_Lgh_grid_diffs.json", "w") as L_Lgh_file:
+            json.dump(max_L_Lgh_diff_save, L_Lgh_file, indent=4)
+        logger.success(
+            f"Max Lipschitz grid diff for L_Lgh saved: {self.env_dir}/L_Lgh_grid_diffs.json"
+        )
+
+        # return the differences
+        return max_L_Lfh_diff, max_L_Lgh_diff
 
     def save_lipschitz_grids(self):
         L_Lfh_grids_to_save = copy.deepcopy(self.L_Lfh_grids)
@@ -810,12 +958,12 @@ class Perception:
         u_nominal: np.ndarray,
         k: float,
         confidence_level: int,
-        percentile: float
+        percentile: float,
     ):
         # mode 2: risk aware approach with global maximum on the percentiles
         # Assume alpha(h) = h, so L_alpha_h = 1
         L_alpha_h = 1.0
-        
+
         # calculate epsilon
         epsilon = self.get_epsilon(noise, k)
 
@@ -871,10 +1019,18 @@ class Perception:
         L_Lfhs, L_Lghs = [], []
         for i in rows:
             for j in cols:
-                L_Lfhs.append(self.L_Lfh_grids[f"{confidence_level}"][f"{percentile}"][i, j])
-                L_Lghs.append(self.L_Lgh_grids[f"{confidence_level}"][f"{percentile}"][i, j])
-        L_Lfh = np.amax(np.array(L_Lfhs), axis=0)
-        L_Lgh = np.amax(np.array(L_Lghs), axis=0)
+                L_Lfhs.append(
+                    self.L_Lfh_grids[f"{confidence_level}"][f"{percentile}"][i, j]
+                )
+                L_Lghs.append(
+                    self.L_Lgh_grids[f"{confidence_level}"][f"{percentile}"][i, j]
+                )
+
+        # also add the maximum difference to the value of L_Lfh and L_Lgh
+        max_L_Lfh_diff = self.max_L_Lfh_diff[confidence_level][f"{percentile}"]
+        max_L_Lgh_diff = self.max_L_Lgh_diff[confidence_level][f"{percentile}"]
+        L_Lfh = np.amax(np.array(L_Lfhs), axis=0) + max_L_Lfh_diff
+        L_Lgh = np.amax(np.array(L_Lghs), axis=0) + max_L_Lgh_diff
 
         # calculate the new safety margin
         a = (L_Lfh + L_alpha_h) * epsilon

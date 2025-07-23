@@ -206,6 +206,7 @@ if __name__ == "__main__":
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
     experiments = [fake_experiment]
     experiment_modes = [0, 1, 2, 3]
+    # experiment_modes = [0]
 
     # iterate over the experiments
     # experiment modes:
