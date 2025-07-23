@@ -20,6 +20,7 @@ class PyBulletPlayback:
         p.setGravity(0, 0, -9.81)
         self.paused = False
         self.step = 0  # current frame index
+        self.robot_height = 0.5       # height of the robot (obstacles have same height as robot)
 
         self._init_world()
 
@@ -51,7 +52,7 @@ class PyBulletPlayback:
         t = self.step
         pos = self.robot_pos[t]
         p.resetBasePositionAndOrientation(
-            self.robot_id, [pos[0], pos[1], self.z_base], self.rotation
+            self.robot_id, [pos[0], pos[1], self.robot_height], self.rotation
         )
         p.stepSimulation()
 
@@ -70,27 +71,29 @@ class PyBulletPlayback:
 
     def _init_world(self):
         p.loadURDF("plane.urdf")
-
-        # Scale robot to 1m wide
-        scale_factor = 1.0 / 0.344  # ≈ 2.91
-        self.z_base = 0.604 * scale_factor / 2
-
-        # Rotate so arm faces +X
-        self.rotation = R.from_euler('z', -90, degrees=True).as_quat()
-        start = [self.robot_pos[0, 0], self.robot_pos[0, 1], self.z_base]
-
-        self.robot_id = p.loadURDF(
-            "r2d2.urdf",
-            basePosition=start,
-            baseOrientation=self.rotation,
-            globalScaling=scale_factor
-        )
-        aabb = p.getAABB(self.robot_id)
-        robot_size = np.array(aabb[1]) - np.array(aabb[0])
-        print(f"Robot size (x, y, z): {robot_size}")
-
+        self.rotation = [0, 0, 0, 1]  # no rotation needed
+        start = [self.robot_pos[0, 0], self.robot_pos[0, 1], self.robot_height]
+        self.robot_id = self._spawn_robot(start)
         self._spawn_sensors()
         self._spawn_obstacles()
+    
+    def _spawn_robot(self, position):
+        half_extents = [0.5, 0.5, self.robot_height]  # → 1m x 1m robot
+        visual = p.createVisualShape(
+            shapeType=p.GEOM_BOX,
+            halfExtents=half_extents,
+            rgbaColor=[0.0, 0.6, 0.9, 1.0]
+        )
+        collision = p.createCollisionShape(
+            shapeType=p.GEOM_BOX,
+            halfExtents=half_extents
+        )
+        return p.createMultiBody(
+            baseMass=1,
+            baseCollisionShapeIndex=collision,
+            baseVisualShapeIndex=visual,
+            basePosition=position
+        )
 
     def _spawn_sensors(self):
         sensor_visual = p.createVisualShape(
@@ -111,7 +114,7 @@ class PyBulletPlayback:
             if obs_type == "rectangle":
                 width = obs["width"]
                 height = obs["height"]
-                z_half = 1.0  # obstacle height in z-direction (visual), adjust as needed
+                z_half = self.robot_height    # same height as robot
                 half_extents = [width / 2, height / 2, z_half / 2]
 
                 vis = p.createVisualShape(
@@ -132,7 +135,7 @@ class PyBulletPlayback:
 
             else:  # assume circular obstacle
                 radius = obs["radius"]
-                z_half = 1.0
+                z_half = self.robot_height    # same height as robot
                 vis = p.createVisualShape(
                     p.GEOM_CYLINDER, radius=radius, length=2 * z_half, rgbaColor=[1, 0, 0, 1]
                 )
@@ -202,6 +205,6 @@ class PyBulletPlayback:
 
 
 if __name__ == "__main__":
-    # pybullet_visualizer = PyBulletPlayback("./runs/experiment_success/simulation_results/loaded_env_0")  
-    pybullet_visualizer = PyBulletPlayback("./runs/experiment_fabric_success/simulation_results/fabric_experiment")  
+    pybullet_visualizer = PyBulletPlayback("./runs/experiment_fake_success/simulation_results/fake_experiment_3")  
+    # pybullet_visualizer = PyBulletPlayback("./runs/experiment_fabric_success/simulation_results/fabric_experiment")  
     pybullet_visualizer.playback()
