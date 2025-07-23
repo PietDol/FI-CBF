@@ -68,8 +68,8 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
-            load_lipschitz_grid_path="./runs/experiment_success/simulation_results/fake_experiment",
             # load_lipschitz_grid_path="./runs/experiment_fabric/simulation_results/fabric_experiment",
+            load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
         )
 
         # create cbf costmap
@@ -407,6 +407,7 @@ class Robot:
             k=k,
             reachable_set=reachable_set,
             confidence_level=conf_level,
+            percentile=80.0,    # for now we take 80% percentile
         )
 
         # apply safety filter to the control input

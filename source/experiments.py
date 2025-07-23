@@ -184,6 +184,7 @@ if __name__ == "__main__":
                 0.01,
                 0.01,
             ],  # with of the sigmoid belonging to the corresponding sigma
+            "percentiles": [80.0, 100.0]
         },
         control_fps=50,
         state_estimation_fps=50,
@@ -204,8 +205,7 @@ if __name__ == "__main__":
     # for now only use fake experiment and experiment_mode 3 to set everything up
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
     experiments = [fake_experiment]
-    # experiment_modes = [0, 1, 2, 3]
-    experiment_modes = [0, 3]
+    experiment_modes = [0, 1, 2, 3]
 
     # iterate over the experiments
     # experiment modes:

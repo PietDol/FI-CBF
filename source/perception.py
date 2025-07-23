@@ -66,17 +66,17 @@ class Perception:
         self.min_sensor_noise = min_sensor_noise
         self.magnitude_threshold = magnitude_threshold
         self.obstacles = obstacles
+        self.conf_levels = confidence_config["levels"]
+        self.percentiles = confidence_config["percentiles"]
 
         # estimate the lipschitz constants for the grid
-        if load_lipschitz_grid_path is not None:
+        try:
             self.L_Lfh_grids, self.L_Lgh_grids = self.load_lipschitz_grids(
                 load_lipschitz_grid_path
             )
-        else:
-            # percentiles = ["80", "90", "95", "100"]
-            percentiles = ["80", "100"]
+        except:
             self.L_Lfh_grids, self.L_Lgh_grids = {}, {}
-            for i in range(len(confidence_config["levels"])):
+            for i, level in enumerate(self.conf_levels):
                 v_max = confidence_config["vmax"][i]
                 _min_values_state = np.array(
                     [min_values_state[0], min_values_state[1], -v_max, -v_max]
@@ -84,15 +84,15 @@ class Perception:
                 _max_values_state = np.array(
                     [max_values_state[0], max_values_state[1], v_max, v_max]
                 )
-                L_Lfh_grids, L_Lgh_grids = self.create_lipschitz_grid(
+                L_Lfh_grids, L_Lgh_grids = self.create_lipschitz_grid_3(
                     min_values_state=_min_values_state,
                     max_values_state=_max_values_state,
-                    percentiles=percentiles,
+                    percentiles=self.percentiles,
                     num_points_per_dim_per_cell=num_samples_per_dim,
                     save_histogram=False,
                 )
-                self.L_Lfh_grids[f"{i}"] = L_Lfh_grids
-                self.L_Lgh_grids[f"{i}"] = L_Lgh_grids
+                self.L_Lfh_grids[f"{level}"] = L_Lfh_grids
+                self.L_Lgh_grids[f"{level}"] = L_Lgh_grids
 
         # plot the grid
         # self.plot_lipschitz_grids(
@@ -107,8 +107,8 @@ class Perception:
         # save the lipschitz grids
         self.save_lipschitz_grids()
 
-        # create lipschitz consants for base MRCBF paper
-        self.L_Lfhs_mrcbf, self.L_Lghs_mrcbf = self.mrcbf_lipschitz_constants()
+        # create lipschitz consants for different experiment modes
+        self.L_Lfhs, self.L_Lghs = self.calculate_lipschitz_constants()
 
         # create the sensors if not given
         self.sensors = sensors
@@ -128,7 +128,7 @@ class Perception:
         )
         logger.success("Perception magnitude costmap created")
         self.noise_costmap = self.create_costmap(costmap_type="noise")
-        logger.success("Noise costmap created")    
+        logger.success("Noise costmap created")
 
     #######################################################################
     # MAIN FUNCTIONS
@@ -151,7 +151,7 @@ class Perception:
     def info(self):
         # function to plot all the information
         [sensor.info(i) for i, sensor in enumerate(self.sensors)]
-    
+
     def calculate_safety_margin(
         self,
         experiment_mode: int,
@@ -160,17 +160,30 @@ class Perception:
         k: float,
         reachable_set: np.ndarray,
         confidence_level: int,
+        percentile: float,
     ):
         # wrapper function to calculate the safety margin, L_Lfh and L_Lgh value
+        # round percentile to 1 decimal -> stored in self.L_Lfhs and self.L_Lghs
+        percentile = np.round(percentile, 1)
+
         # calculate the safety margins based on the experiment mode
         if experiment_mode == 0:
-            safety_margin, L_Lfh, L_Lgh = self.safety_margin_0(
-                u_nominal
-            )
+            safety_margin, L_Lfh, L_Lgh = self.safety_margin_0(u_nominal)
         elif experiment_mode == 1:
-            raise NotImplementedError
+            safety_margin, L_Lfh, L_Lgh = self.safety_margin_1(
+                noise=noise,
+                u_nominal=u_nominal,
+                k=k,
+                confidence_level=confidence_level,
+            )
         elif experiment_mode == 2:
-            raise NotImplementedError
+            safety_margin, L_Lfh, L_Lgh = self.safety_margin_2(
+                noise=noise,
+                u_nominal=u_nominal,
+                k=k,
+                confidence_level=confidence_level,
+                percentile=percentile
+            )
         elif experiment_mode == 3:
             safety_margin, L_Lfh, L_Lgh = self.safety_margin_3(
                 noise=noise,
@@ -178,12 +191,14 @@ class Perception:
                 k=k,
                 reachable_set=reachable_set,
                 confidence_level=confidence_level,
+                percentile=percentile
             )
         else:
             logger.error(f"Current experiment mode is not supported: {experiment_mode}")
             raise NotImplementedError
-        
+
         return safety_margin, L_Lfh, L_Lgh
+
     #######################################################################
     # HELPER FUNCTIONS
     #######################################################################
@@ -348,33 +363,31 @@ class Perception:
             logger.info(f"L_Lgh per barrier: {L_Lgh}")
 
         return np.array(L_Lfh), np.array(L_Lgh)
-    
-    #######################################################################
-    # PRECALCULATIONS FOR THE SAFETY MARGINS
-    #######################################################################
-    def mrcbf_lipschitz_constants(self):
-        # lipschitz constants are absolute maximum value
+
+    @staticmethod
+    def is_square_fully_inside_circle(
+        square_center, square_size, circle_center, circle_radius
+    ):
+        half_size = square_size / 2
+
+        # Compute the coordinates of the square corners
+        corners = np.array(
+            [
+                square_center + [-half_size, -half_size],
+                square_center + [-half_size, half_size],
+                square_center + [half_size, -half_size],
+                square_center + [half_size, half_size],
+            ]
+        )
+
+        # Check if all corners are within the circle
+        distances = np.linalg.norm(corners - circle_center, axis=1)
+        return np.all(distances <= circle_radius)
+
+    def _lipschitz_constant_helper(self, confidence_level: int, percentile: float):
+        # helper function to calculate the lipschitz constants for given confidence level and percentile
         L_Lfhs, L_Lghs = [], []
-
-        # helper functions
-        def is_square_fully_inside_circle(
-            square_center, square_size, circle_center, circle_radius
-        ):
-            half_size = square_size / 2
-
-            # Compute the coordinates of the square corners
-            corners = np.array(
-                [
-                    square_center + [-half_size, -half_size],
-                    square_center + [-half_size, half_size],
-                    square_center + [half_size, -half_size],
-                    square_center + [half_size, half_size],
-                ]
-            )
-
-            # Check if all corners are within the circle
-            distances = np.linalg.norm(corners - circle_center, axis=1)
-            return np.all(distances <= circle_radius)
+        percentile = np.round(percentile, 1)
 
         # make sure that the grids inside the obstacles are not taken into account
         for i, obstacle in enumerate(self.obstacles):
@@ -392,7 +405,10 @@ class Perception:
             row_max_ind = int(np.floor(y_max + origin_offset[0]))
 
             # create mask
-            mask = np.ones(self.L_Lfh_grids["1"]["100"].shape[:2], dtype=bool)
+            mask = np.ones(
+                self.L_Lfh_grids[f"{confidence_level}"][f"{percentile}"].shape[:2],
+                dtype=bool,
+            )
             if isinstance(obstacle, RectangleObstacle):
                 raise NotImplementedError
             elif isinstance(obstacle, CircleObstacle):
@@ -400,7 +416,7 @@ class Perception:
                     for row in range(row_min_ind, row_max_ind + 1):
                         square_center = np.array([row, col])[::-1] + 0.5 - origin_offset
                         mask[row, col] = not (
-                            is_square_fully_inside_circle(
+                            self.is_square_fully_inside_circle(
                                 square_center=square_center,
                                 square_size=1.0,
                                 circle_center=obstacle.pos_center,
@@ -409,18 +425,76 @@ class Perception:
                         )
 
             # only take max of values which are not inside obstacles
-            L_Lfhs.append(np.amax(self.L_Lfh_grids["1"]["100"][:, :, i][mask]))
-            L_Lghs.append(np.amax(self.L_Lgh_grids["1"]["100"][:, :, i][mask]))
+            L_Lfhs.append(
+                np.amax(
+                    self.L_Lfh_grids[f"{confidence_level}"][f"{percentile}"][:, :, i][
+                        mask
+                    ]
+                )
+            )
+            L_Lghs.append(
+                np.amax(
+                    self.L_Lgh_grids[f"{confidence_level}"][f"{percentile}"][:, :, i][
+                        mask
+                    ]
+                )
+            )
 
         # convert to numpy and log values
         L_Lfhs = np.array(L_Lfhs)
         L_Lghs = np.array(L_Lghs)
-        logger.info(f"L_Lfhs MRCBF: {L_Lfhs}")
-        logger.info(f"L_Lghs MRCBF: {L_Lghs}")
 
         return L_Lfhs, L_Lghs
 
-    def create_lipschitz_grid(
+    #######################################################################
+    # PRECALCULATIONS FOR THE SAFETY MARGINS
+    #######################################################################
+    def calculate_lipschitz_constants(self):
+        # function to calculate the lipschitz constants for experiment mode 0, 1 and 2
+        # create the dict to store values for each experiment mode
+        L_Lfhs = {
+            0: None,
+            1: {},
+            2: {},
+        }
+        L_Lghs = {
+            0: None,
+            1: {},
+            2: {},
+        }
+
+        # experiment mode 0:
+        # lipschitz constants are absolute maximum value -> level 1, percentile 100
+        L_Lfhs[0], L_Lghs[0] = self._lipschitz_constant_helper(1, 100.0)
+
+        # experiment mode 1:
+        # iterate over the confidence level and take max value -> percentile 100
+        for conf_level in self.conf_levels:
+            L_Lfhs_1, L_Lghs_1 = self._lipschitz_constant_helper(conf_level, 100.0)
+            L_Lfhs[1][conf_level] = L_Lfhs_1
+            L_Lghs[1][conf_level] = L_Lghs_1
+
+        # experiment mode 2:
+        # iterate over the confidence level and percentile
+        for conf_level in self.conf_levels:
+            conf_dict_L_Lfh, conf_dict_L_Lgh = {}, {}
+            for percentile in self.percentiles:
+                percentile = np.round(percentile, 1)
+                conf_dict_L_Lfh[f"{percentile}"], conf_dict_L_Lgh[f"{percentile}"] = (
+                    self._lipschitz_constant_helper(conf_level, percentile)
+                )
+            
+            # add dict for confidence to L_Lfhs and L_Lghs
+            L_Lfhs[2][conf_level] = conf_dict_L_Lfh
+            L_Lghs[2][conf_level] = conf_dict_L_Lgh
+
+        # log the values in the terminal
+        logger.info(f"L_Lfhs: {L_Lfhs}")
+        logger.info(f"L_Lghs: {L_Lghs}")
+
+        return L_Lfhs, L_Lghs
+
+    def create_lipschitz_grid_3(
         self,
         min_values_state: np.ndarray,
         max_values_state: np.ndarray,
@@ -449,10 +523,11 @@ class Perception:
         # create grids
         L_Lfh_grid, L_Lgh_grid = {}, {}
         for percentile in percentiles:
-            L_Lfh_grid[percentile] = np.zeros(
+            percentile = np.round(percentile, 1)
+            L_Lfh_grid[f"{percentile}"] = np.zeros(
                 (cell_grid[1], cell_grid[0], num_barriers)
             )
-            L_Lgh_grid[percentile] = np.zeros(
+            L_Lgh_grid[f"{percentile}"] = np.zeros(
                 (cell_grid[1], cell_grid[0], num_barriers)
             )
 
@@ -545,7 +620,7 @@ class Perception:
             )
 
         return L_Lfh_grid, L_Lgh_grid
-    
+
     def save_lipschitz_grids(self):
         L_Lfh_grids_to_save = copy.deepcopy(self.L_Lfh_grids)
         L_Lgh_grids_to_save = copy.deepcopy(self.L_Lgh_grids)
@@ -689,7 +764,7 @@ class Perception:
                     logger.success(
                         f"Grid for confidence {confidence_key}, {percentile_key}% and barrier {i} saved: {lipschitz_dir}/visuals/grid_{confidence_key}_{percentile_key}_barrier_{i}.png"
                     )
-    
+
     #######################################################################
     # DIFFERENT SAFETY MARGIN MODES
     #######################################################################
@@ -700,18 +775,59 @@ class Perception:
 
         # 3 * noise is 99,7% confidence interval so 4 is closer to robust
         epsilon = 4 * self.max_sensor_noise  # in the paper they use 0.4 for max noise
-        a = (self.L_Lfhs_mrcbf + L_alpha_h) * epsilon
-        b = self.L_Lghs_mrcbf * epsilon
+        a = (self.L_Lfhs[0] + L_alpha_h) * epsilon
+        b = self.L_Lghs[0] * epsilon
         safety_margin = a + b * jnp.linalg.norm(u_nominal)
-        return safety_margin, self.L_Lfhs_mrcbf, self.L_Lghs_mrcbf
-    
-    def safety_margin_1(self):
-        # mode 1: global maximum based on the confidence level
-        raise NotImplementedError
+        return safety_margin, self.L_Lfhs[0], self.L_Lghs[0]
 
-    def safety_margin_2(self):
+    def safety_margin_1(
+        self,
+        noise: float,
+        u_nominal: np.ndarray,
+        k: float,
+        confidence_level: int,
+    ):
+        # mode 1: global maximum based on the confidence level
+        # Assume alpha(h) = h, so L_alpha_h = 1
+        L_alpha_h = 1.0
+
+        # calculate epsilon
+        epsilon = self.get_epsilon(noise, k)
+
+        # get the values of L_Lfh and L_Lgh
+        L_Lfh = self.L_Lfhs[1][confidence_level]
+        L_Lgh = self.L_Lghs[1][confidence_level]
+
+        # calculate the safety margin
+        a = (L_Lfh + L_alpha_h) * epsilon
+        b = L_Lgh * epsilon
+        safety_margin = a + b * jnp.linalg.norm(u_nominal)
+        return safety_margin, L_Lfh, L_Lgh
+
+    def safety_margin_2(
+        self,
+        noise: float,
+        u_nominal: np.ndarray,
+        k: float,
+        confidence_level: int,
+        percentile: float
+    ):
         # mode 2: risk aware approach with global maximum on the percentiles
-        raise NotImplementedError
+        # Assume alpha(h) = h, so L_alpha_h = 1
+        L_alpha_h = 1.0
+        
+        # calculate epsilon
+        epsilon = self.get_epsilon(noise, k)
+
+        # get the values of L_Lfh and L_Lgh
+        L_Lfh = self.L_Lfhs[2][confidence_level][f"{percentile}"]
+        L_Lgh = self.L_Lghs[2][confidence_level][f"{percentile}"]
+
+        # calculate the safety margin
+        a = (L_Lfh + L_alpha_h) * epsilon
+        b = L_Lgh * epsilon
+        safety_margin = a + b * jnp.linalg.norm(u_nominal)
+        return safety_margin, L_Lfh, L_Lgh
 
     def safety_margin_3(
         self,
@@ -720,6 +836,7 @@ class Perception:
         k: float,
         reachable_set: np.ndarray,
         confidence_level: int,
+        percentile: float,
     ):
         # mode 3: risk aware horizon approach
         # Converts the uncertainty to the safety margin that needs to be used by the CBFs to
@@ -727,7 +844,7 @@ class Perception:
         # Assume alpha(h) = h, so L_alpha_h = 1
         L_alpha_h = 1.0
 
-        # calculate epsilon in the paper they use eps=0.4
+        # calculate epsilon
         epsilon = self.get_epsilon(noise, k)
 
         # calculate the lipschitz constants based on the grid
@@ -751,12 +868,11 @@ class Perception:
         )  # +1 because the stop must be included
 
         # get the lipschitz values from the grid
-        # for now tak 80% percentile
         L_Lfhs, L_Lghs = [], []
         for i in rows:
             for j in cols:
-                L_Lfhs.append(self.L_Lfh_grids[f"{confidence_level}"]["80"][i, j])
-                L_Lghs.append(self.L_Lgh_grids[f"{confidence_level}"]["80"][i, j])
+                L_Lfhs.append(self.L_Lfh_grids[f"{confidence_level}"][f"{percentile}"][i, j])
+                L_Lghs.append(self.L_Lgh_grids[f"{confidence_level}"][f"{percentile}"][i, j])
         L_Lfh = np.amax(np.array(L_Lfhs), axis=0)
         L_Lgh = np.amax(np.array(L_Lghs), axis=0)
 
