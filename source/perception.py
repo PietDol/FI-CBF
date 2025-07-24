@@ -1045,6 +1045,9 @@ class Perception:
                     self.L_Lgh_grids[f"{confidence_level}"][f"{percentile}"][i, j]
                 )
 
+        if len(L_Lfhs) < 1:
+            logger.debug("Error")
+
         # also add the maximum difference to the value of L_Lfh and L_Lgh
         max_L_Lfh_diff = self.max_L_Lfh_diff[confidence_level][f"{percentile}"]
         max_L_Lgh_diff = self.max_L_Lgh_diff[confidence_level][f"{percentile}"]

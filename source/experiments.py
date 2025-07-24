@@ -118,11 +118,77 @@ class FabricEnvironment:
 
 
 # level 3 experiment: cluttered environment
-class ClutterdEnvironment:
+class ClutteredEnvironment:
     def __init__(self, env_dir):
         self.env_dir = env_dir
         self.experiment_name = "cluttered_experiment"
         self.env_json_path = f"{self.env_dir}/{self.experiment_name}.json"
+        self.save_env_json()
+
+    def save_env_json(self):
+        robot_radius = 0.7071
+
+        env_dict = {
+            "start_pos": [-9.0, -9.0],
+            "start_vel": [0.0, 0.0],
+            "goal_pos": [-4.0, 8.0],
+            "obstacles": [
+                {
+                    "type": "circle",
+                    "center": [-6.0, 4.0],
+                    "radius": 3.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [-1.0, -1.0],
+                    "radius": 4.0,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [7.0, -7.0],
+                    "radius": 2.0,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [5.0, -1.0],
+                    "radius": 2.0,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [6.0, 6.0],
+                    "radius": 3.0,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [-1.0, 6.0],
+                    "radius": 2.1,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [-4.0, -8.],
+                    "radius": 1.5,
+                    "robot_radius": robot_radius,
+                },
+
+            ],
+            "sensors": [
+                {"center": [-7.0, 3.0], "max_distance": 10},
+                {"center": [0.0, -7.0], "max_distance": 10},
+                {"center": [5.0, 5.0], "max_distance": 10},
+                {"center": [0.0, 5.0], "max_distance": 10},
+            ],
+        }
+
+        with open(self.env_json_path, "w") as f:
+            json.dump(env_dict, f, indent=4)
+
+        logger.success(f"Cluttered environment saved: {self.env_json_path}")
 
 
 if __name__ == "__main__":
@@ -164,9 +230,9 @@ if __name__ == "__main__":
                 0.01,
                 0.01,
             ],  # with of the sigmoid belonging to the corresponding sigma
-            "percentiles": [80.0, 100.0]
+            "percentiles": [80.0, 100.0],
         },
-        cbf_percentile = 80.0,
+        cbf_percentile=80.0,
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
@@ -181,13 +247,13 @@ if __name__ == "__main__":
     # create experiment environments for the experiments
     fake_experiment = FakeEnvironment(env_dir=directory)
     fabric_experiment = FabricEnvironment(env_dir=directory)
-    cluttered_experiment = ClutterdEnvironment(env_dir=directory)
+    cluttered_experiment = ClutteredEnvironment(env_dir=directory)
 
     # for now only use fake experiment and experiment_mode 3 to set everything up
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
-    experiments = [fake_experiment]
+    experiments = [cluttered_experiment]
     experiment_modes = [0, 1, 2, 3]
-    # experiment_modes = [2]
+    # experiment_modes = [3]
 
     # iterate over the experiments
     # experiment modes:
@@ -202,4 +268,3 @@ if __name__ == "__main__":
                 env_folder=f"{experiment.experiment_name}_{i}",
                 experiment_mode=i,
             )
-    

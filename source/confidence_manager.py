@@ -30,6 +30,6 @@ class ConfidenceManager:
                     i + 1
                 ] + transition_value * self.k_levels[i]
                 # logger.debug(f"σ, T, v, k: {sigma}, {transition_value}, {vmax}, {k}")
-                return i, vmax, k
+                return i + 1, vmax, k
         # beyond last threshold → return last level
-        return self.num_levels - 1, self.vmax_levels[-1], self.k_levels[-1]
+        return self.num_levels, self.vmax_levels[-1], self.k_levels[-1]
