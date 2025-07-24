@@ -164,14 +164,26 @@ class Perception:
         reachable_set: np.ndarray,
         confidence_level: int,
         percentile: float,
+        G: jnp.ndarray,
+        h: jnp.ndarray,
     ):
-        # wrapper function to calculate the safety margin, L_Lfh and L_Lgh value
+        # wrapper function to calculate the safety margin, L_Lfh, L_Lgh
+        # and the constraint matrices, G and h
+        # structure of G and h:
+        # index 0-3: constraints to stay in working domain
+        # index 4-7: constraints to bound maximum velocity 
+        # index 8-11: constraints to stay within the reachable set
         # round percentile to 1 decimal -> stored in self.L_Lfhs and self.L_Lghs
         percentile = np.round(percentile, 1)
 
         # calculate the safety margins based on the experiment mode
         if experiment_mode == 0:
             safety_margin, L_Lfh, L_Lgh = self.safety_margin_0(u_nominal)
+
+            # constraint is that the system stays within the working domain
+            # -> lipschitz constants only calculated for working domain
+            G = G[:4]
+            h = h[:4]
         elif experiment_mode == 1:
             safety_margin, L_Lfh, L_Lgh = self.safety_margin_1(
                 noise=noise,
@@ -179,6 +191,10 @@ class Perception:
                 k=k,
                 confidence_level=confidence_level,
             )
+
+            # constraints are to stay in working domain and bound v_max
+            G = G[:8]
+            h = h[:8]
         elif experiment_mode == 2:
             safety_margin, L_Lfh, L_Lgh = self.safety_margin_2(
                 noise=noise,
@@ -187,6 +203,10 @@ class Perception:
                 confidence_level=confidence_level,
                 percentile=percentile,
             )
+
+            # constraints are to stay in working domain and bound v_max
+            G = G[:8]
+            h = h[:8]
         elif experiment_mode == 3:
             safety_margin, L_Lfh, L_Lgh = self.safety_margin_3(
                 noise=noise,
@@ -196,11 +216,14 @@ class Perception:
                 confidence_level=confidence_level,
                 percentile=percentile,
             )
+
+            # constraints are to stay in working domain and reachable set and bound v_max
+            # so just return the full G and h
         else:
             logger.error(f"Current experiment mode is not supported: {experiment_mode}")
             raise NotImplementedError
 
-        return safety_margin, L_Lfh, L_Lgh
+        return safety_margin, L_Lfh, L_Lgh, G, h
 
     #######################################################################
     # HELPER FUNCTIONS

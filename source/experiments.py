@@ -170,8 +170,8 @@ if __name__ == "__main__":
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
-        Kp=1.5,  # 0.5
-        Kd=1.0,  # 0.1
+        Kp=0.5,  # 0.5
+        Kd=0.2,  # 0.1
         u_min_max=np.array([-1000, 1000]),
     )
 
@@ -185,7 +185,7 @@ if __name__ == "__main__":
 
     # for now only use fake experiment and experiment_mode 3 to set everything up
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
-    experiments = [fabric_experiment]
+    experiments = [fake_experiment]
     experiment_modes = [0, 1, 2, 3]
     # experiment_modes = [2]
 

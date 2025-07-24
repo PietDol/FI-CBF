@@ -32,7 +32,7 @@ class Robot:
         cbf_switch_control_diff_thres: float = None,
         cbf_switch_nominal_control_mag: float = None,
         cbf_confidence_config: dict = None,
-        cbf_percentile : float = None,
+        cbf_percentile: float = None,
         noise_cost_gain: float = 0.0,
         goal_tolerance: float = 0.1,
         Kp: float = 0.5,
@@ -69,8 +69,8 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
-            load_lipschitz_grid_path="./runs/experiment_fabric_success/simulation_results/fabric_experiment_0",
-            # load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
+            # load_lipschitz_grid_path="./runs/experiment_fabric_success/simulation_results/fabric_experiment_0",
+            load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
             # load_lipschitz_grid_path="./runs/experiments/simulation_results/fabric_experiment_0",
         )
 
@@ -284,7 +284,7 @@ class Robot:
             # add time to the visualizer
             self.visualizer.data.cbf_switch_active.append(self._t_control)
 
-    def calculate_reachable_set(
+    def calculate_safety_filter_constraints(
         self,
         v_max: float,
         noise: float,
@@ -323,34 +323,25 @@ class Robot:
         # create the matrices for that: Gu <= h (https://github.com/kevin-tracy/qpax)
         G = jnp.array(
             [
-                # stay within reachable set
-                [-steps_ahead * self._control_dt, 0],  # x_min
-                [steps_ahead * self._control_dt, 0],  # x_max
-                [0, -steps_ahead * self._control_dt],  # y_min
-                [0, steps_ahead * self._control_dt],  # y_max
                 # stay within working domain
                 [-steps_ahead * self._control_dt, 0],  # x_min
                 [steps_ahead * self._control_dt, 0],  # x_max
                 [0, -steps_ahead * self._control_dt],  # y_min
                 [0, steps_ahead * self._control_dt],  # y_max
                 # v < v_max
-                [-1, 0],     # > -v_max
-                [1, 0],      # < v_max
-                [0, -1],     # > -v_max
-                [0, 1],      # < v_max     
+                [-1, 0],  # > -v_max
+                [1, 0],  # < v_max
+                [0, -1],  # > -v_max
+                [0, 1],  # < v_max
+                # stay within reachable set
+                [-steps_ahead * self._control_dt, 0],  # x_min
+                [steps_ahead * self._control_dt, 0],  # x_max
+                [0, -steps_ahead * self._control_dt],  # y_min
+                [0, steps_ahead * self._control_dt],  # y_max
             ]
         )
         h = jnp.array(
             [
-                # stay within reachable set
-                steps_ahead * (v_max + self._estimated_state[2]) * self._control_dt
-                + 3 * noise,  # x_min
-                steps_ahead * (v_max - self._estimated_state[2]) * self._control_dt
-                + 3 * noise,  # x_max
-                steps_ahead * (v_max + self._estimated_state[3]) * self._control_dt
-                + 3 * noise,  # y_min
-                steps_ahead * (v_max - self._estimated_state[3]) * self._control_dt
-                + 3 * noise,  # y_max
                 # stay within working domain
                 -work_domain[0, 0]
                 + self._estimated_state[0]
@@ -365,10 +356,19 @@ class Robot:
                 - self._estimated_state[1]
                 - steps_ahead * self._estimated_state[3] * self._control_dt,  # y_max
                 # v < v_max
-                v_max + self._estimated_state[2],   # > -v_max
-                v_max - self._estimated_state[2],   # < v_max
-                v_max + self._estimated_state[3],   # > -v_max
-                v_max - self._estimated_state[3],   # < v_max
+                v_max + self._estimated_state[2],  # > -v_max
+                v_max - self._estimated_state[2],  # < v_max
+                v_max + self._estimated_state[3],  # > -v_max
+                v_max - self._estimated_state[3],  # < v_max
+                # stay within reachable set
+                steps_ahead * (v_max + self._estimated_state[2]) * self._control_dt
+                + 3 * noise,  # x_min
+                steps_ahead * (v_max - self._estimated_state[2]) * self._control_dt
+                + 3 * noise,  # x_max
+                steps_ahead * (v_max + self._estimated_state[3]) * self._control_dt
+                + 3 * noise,  # y_min
+                steps_ahead * (v_max - self._estimated_state[3]) * self._control_dt
+                + 3 * noise,  # y_max
             ]
         )
         return np.array([[x_min, x_max], [y_min, y_max]]), G, h
@@ -391,28 +391,39 @@ class Robot:
         conf_level, v_max, k = self.confidence_manager.get_confidence_info(noise)
 
         # calculate the reachable set
-        reachable_set, G_constraint, h_constraint = self.calculate_reachable_set(
-            v_max=v_max, noise=noise, steps_ahead=2.0
+        reachable_set, G_constraints, h_constraints = (
+            self.calculate_safety_filter_constraints(
+                v_max=v_max, noise=noise, steps_ahead=2.0
+            )
         )
 
         # calculate the nominal control
         u_nominal = self.pd_controller(target_pos, v_max)
 
         # calculate the safety margins based on the experiment mode
-        safety_margin, L_Lfh, L_Lgh = self.perception.calculate_safety_margin(
+        safety_margin, L_Lfh, L_Lgh, G, h = self.perception.calculate_safety_margin(
             experiment_mode=experiment_mode,
             noise=noise,
             u_nominal=u_nominal,
             k=k,
             reachable_set=reachable_set,
             confidence_level=conf_level,
-            percentile=self._cbf_percentile,    # for now we take 80% percentile
+            percentile=self._cbf_percentile,  # for now we take 80% percentile
+            G=G_constraints,
+            h=h_constraints,
         )
 
         # apply safety filter to the control input
         # new version
-        u_cbf, h_est, h_true, Lfh_est, Lfh_true, Lgh_est, Lgh_true = self.cbf.safety_filter(
-            self._estimated_state, u_nominal, safety_margin, self._true_state, G_constraint, h_constraint
+        u_cbf, h_est, h_true, Lfh_est, Lfh_true, Lgh_est, Lgh_true = (
+            self.cbf.safety_filter(
+                self._estimated_state,
+                u_nominal,
+                safety_margin,
+                self._true_state,
+                G,
+                h,
+            )
         )
 
         # add all the data
@@ -435,13 +446,6 @@ class Robot:
         # update the state of the system
         self._true_state[2:] += u_cbf
         self._true_state[:2] += self._true_state[2:] * self._control_dt
-
-        # check for velocity
-        # if np.any(self._true_state[2:] > v_max + 1e-3) or np.any(
-        #     self._true_state[2:] < -v_max - 1e-3
-        # ):
-        #     logger.error(f"Maximum velocity exceeded ({v_max}): {self._true_state[2:]}")
-        #     logger.debug(f"Control inputs: {u_nominal}, {u_cbf}")
 
     def state_estimation_update(self):
         # method to get the state estimation of the robot
@@ -514,7 +518,9 @@ class Robot:
             return True
         else:
             distance = np.linalg.norm(self._goal_position - self._true_state[:2])
-            logger.warning(f"Goal not reached after {t} seconds. Distance to goal: {distance} m")
+            logger.warning(
+                f"Goal not reached after {t} seconds. Distance to goal: {distance} m"
+            )
             return False
 
     def plot(self, filename: str):
