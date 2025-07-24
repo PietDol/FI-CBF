@@ -20,7 +20,7 @@ class PyBulletPlayback:
         p.setGravity(0, 0, -9.81)
         self.paused = False
         self.step = 0  # current frame index
-        self.robot_height = 0.5       # height of the robot (obstacles have same height as robot)
+        self.robot_height = 0.0       # height of the robot (obstacles have same height as robot)
 
         self._init_world()
 
@@ -88,11 +88,17 @@ class PyBulletPlayback:
             shapeType=p.GEOM_BOX,
             halfExtents=half_extents
         )
-        return p.createMultiBody(
-            baseMass=1,
-            baseCollisionShapeIndex=collision,
-            baseVisualShapeIndex=visual,
-            basePosition=position
+        # return p.createMultiBody(
+        #     baseMass=1,
+        #     baseCollisionShapeIndex=collision,
+        #     baseVisualShapeIndex=visual,
+        #     basePosition=position
+        # )
+        return p.loadURDF(
+            "husky/husky.urdf",
+            basePosition=position,
+            baseOrientation=self.rotation,
+            useFixedBase=True  # disable dynamics unless you want it moving
         )
 
     def _spawn_sensors(self):
@@ -107,6 +113,7 @@ class PyBulletPlayback:
             )
 
     def _spawn_obstacles(self):
+        obstacle_height = 0.5   # height at which the obstacle can be placed
         for obs in self.obstacles:
             obs_type = obs.get("type", "circle")  # Default to circle if type is missing
             pos = obs["center"]
@@ -114,7 +121,7 @@ class PyBulletPlayback:
             if obs_type == "rectangle":
                 width = obs["width"]
                 height = obs["height"]
-                z_half = self.robot_height    # same height as robot
+                z_half = obstacle_height    # same height as robot
                 half_extents = [width / 2, height / 2, z_half / 2]
 
                 vis = p.createVisualShape(
@@ -135,7 +142,7 @@ class PyBulletPlayback:
 
             else:  # assume circular obstacle
                 radius = obs["radius"]
-                z_half = self.robot_height    # same height as robot
+                z_half = obstacle_height    # same height as robot
                 vis = p.createVisualShape(
                     p.GEOM_CYLINDER, radius=radius, length=2 * z_half, rgbaColor=[1, 0, 0, 1]
                 )
