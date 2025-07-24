@@ -69,8 +69,9 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
-            # load_lipschitz_grid_path="./runs/experiment_fabric/simulation_results/fabric_experiment",
-            load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
+            load_lipschitz_grid_path="./runs/experiment_fabric_success/simulation_results/fabric_experiment_0",
+            # load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
+            # load_lipschitz_grid_path="./runs/experiments/simulation_results/fabric_experiment_0",
         )
 
         # create cbf costmap
@@ -224,20 +225,6 @@ class Robot:
         damping = -self._Kd * velocity
         u = self._Kp * error + damping
 
-        # clip by maximum velocity
-        if v_max is not None:
-            # determine min and max control input
-            for i, v in enumerate(velocity):
-                if v < 0:
-                    u_min = -v_max - v
-                    u_max = v_max + v
-                elif v >= 0:
-                    u_min = -(v_max + v)
-                    u_max = v_max - v
-
-                # clip the control input
-                u[i] = np.clip(u[i], u_min, u_max)
-
         # clip based predefined min and max set by the user
         return np.clip(u, self._u_min_max[0], self._u_min_max[1])
 
@@ -346,6 +333,11 @@ class Robot:
                 [steps_ahead * self._control_dt, 0],  # x_max
                 [0, -steps_ahead * self._control_dt],  # y_min
                 [0, steps_ahead * self._control_dt],  # y_max
+                # v < v_max
+                [-1, 0],     # > -v_max
+                [1, 0],      # < v_max
+                [0, -1],     # > -v_max
+                [0, 1],      # < v_max     
             ]
         )
         h = jnp.array(
@@ -372,6 +364,11 @@ class Robot:
                 work_domain[1, 1]
                 - self._estimated_state[1]
                 - steps_ahead * self._estimated_state[3] * self._control_dt,  # y_max
+                # v < v_max
+                v_max + self._estimated_state[2],   # > -v_max
+                v_max - self._estimated_state[2],   # < v_max
+                v_max + self._estimated_state[3],   # > -v_max
+                v_max - self._estimated_state[3],   # < v_max
             ]
         )
         return np.array([[x_min, x_max], [y_min, y_max]]), G, h

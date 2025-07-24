@@ -540,8 +540,8 @@ class VisualizeSimulation:
 
         # compute empirical L_Lgh
         # we need to compare the lgh time u with L_Lgh * |u|
-        dot_true = np.einsum('tik,ti->tk', Lgh_true, u_cbf) 
-        dot_est  = np.einsum('tik,ti->tk', Lgh_est, u_cbf)
+        dot_true = np.einsum('tki,ti->tk', Lgh_true, u_cbf)
+        dot_est  = np.einsum('tki,ti->tk', Lgh_est, u_cbf)
         empirical_L_Lgh = np.abs(dot_true - dot_est) / delta_pos[:, None] 
         u_norm =  np.linalg.norm(u_cbf, axis=1)
         L_Lgh_est = L_Lgh_est * u_norm[:, None]

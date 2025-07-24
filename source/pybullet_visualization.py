@@ -205,6 +205,6 @@ class PyBulletPlayback:
 
 
 if __name__ == "__main__":
-    pybullet_visualizer = PyBulletPlayback("./runs/experiment_fake_success/simulation_results/fake_experiment_3")  
-    # pybullet_visualizer = PyBulletPlayback("./runs/experiment_fabric_success/simulation_results/fabric_experiment")  
+    # pybullet_visualizer = PyBulletPlayback("./runs/experiment_fake_success/simulation_results/fake_experiment_3")  
+    pybullet_visualizer = PyBulletPlayback("./runs/experiment_fabric_success/simulation_results/fabric_experiment_3")  
     pybullet_visualizer.playback()

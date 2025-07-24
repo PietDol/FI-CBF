@@ -59,73 +59,53 @@ class FabricEnvironment:
 
     def save_env_json(self):
         # function to create json for expirement
-        robot_radius = 0.4
+        robot_radius = 0.7071
         env_dict = {
-            "start_pos": [-4.0, 9.0],
+            "start_pos": [-8.0, 8.0],
             "start_vel": [0.0, 0.0],
-            "goal_pos": [3.0, -4.5],
+            "goal_pos": [3.0, -4.0],
             "obstacles": [
                 {
-                    "type": "rectangle",
-                    "center": [-6, 0],
-                    "height": 16.0,
-                    "width": 2.0,
+                    "type": "circle",
+                    "center": [-2.0, 7.0],
+                    "radius": 2.0,
                     "robot_radius": robot_radius,
                 },
                 {
-                    "type": "rectangle",
-                    "center": [-2.5, 4.0],
-                    "height": 2.0,
-                    "width": 5.0,
+                    "type": "circle",
+                    "center": [3.0, 5.0],
+                    "radius": 3.0,
                     "robot_radius": robot_radius,
                 },
                 {
-                    "type": "rectangle",
-                    "center": [-4.0, -4.5],
-                    "height": 3.0,
-                    "width": 2.0,
+                    "type": "circle",
+                    "center": [3.0, 0.0],
+                    "radius": 3.0,
                     "robot_radius": robot_radius,
                 },
                 {
-                    "type": "rectangle",
-                    "center": [1.0, 7.5],
-                    "height": 1.0,
-                    "width": 8.0,
+                    "type": "circle",
+                    "center": [3.0, -7.0],
+                    "radius": 2.0,
                     "robot_radius": robot_radius,
                 },
                 {
-                    "type": "rectangle",
-                    "center": [5.5, 0.0],
-                    "height": 16.0,
-                    "width": 1.0,
+                    "type": "circle",
+                    "center": [-5.0, 1.0],
+                    "radius": 2.0,
                     "robot_radius": robot_radius,
                 },
                 {
-                    "type": "rectangle",
-                    "center": [2.5, 2.0],
-                    "height": 6.0,
-                    "width": 1.0,
-                    "robot_radius": robot_radius,
-                },
-                {
-                    "type": "rectangle",
-                    "center": [2.0, -2.0],
-                    "height": 2.0,
-                    "width": 6.0,
-                    "robot_radius": robot_radius,
-                },
-                {
-                    "type": "rectangle",
-                    "center": [2.0, -7.0],
-                    "height": 2.0,
-                    "width": 6.0,
+                    "type": "circle",
+                    "center": [-5.0, -4.0],
+                    "radius": 3.0,
                     "robot_radius": robot_radius,
                 },
             ],
             "sensors": [
                 {"center": [-7.5, -7.5], "max_distance": 10},
                 {"center": [7.5, 7.5], "max_distance": 10},
-                # {"center": [1.0, 1.0], "max_distance": 10},
+                {"center": [0.0, 0.0], "max_distance": 10},
             ],
         }
 
@@ -190,8 +170,8 @@ if __name__ == "__main__":
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
-        Kp=0.5,  # 0.5
-        Kd=0.2,  # 0.1
+        Kp=1.5,  # 0.5
+        Kd=1.0,  # 0.1
         u_min_max=np.array([-1000, 1000]),
     )
 
@@ -205,9 +185,9 @@ if __name__ == "__main__":
 
     # for now only use fake experiment and experiment_mode 3 to set everything up
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
-    experiments = [fake_experiment]
+    experiments = [fabric_experiment]
     experiment_modes = [0, 1, 2, 3]
-    # experiment_modes = [3]
+    # experiment_modes = [2]
 
     # iterate over the experiments
     # experiment modes:
