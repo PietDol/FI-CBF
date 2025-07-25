@@ -124,7 +124,6 @@ class Robot:
         self._cbf_switch_control_diff_thres = cbf_switch_control_diff_thres
         self._cbf_switch_nominal_control_mag = cbf_switch_nominal_control_mag
         self._cbf_percentile = np.round(cbf_percentile, 1)  # round for dict key
-        self._switch_active = False
         self._env_folder = env_folder
 
         # control parameters
@@ -253,36 +252,6 @@ class Robot:
         self.visualizer.data.planner_costmap = costmaps["planner_costmap"]
         self.visualizer.data.cbf_costmap = costmaps["cbf_costmap"]
         return costmaps
-
-    def activate_switch(self, u_nominal, u_cbf):
-        # method to check whether the switch should be active
-        if (
-            self._cbf_switch_control_diff_thres is None
-            or self._cbf_switch_velocity_thres is None
-        ):
-            self._switch_active = False
-            return
-
-        if self._switch_active and (
-            np.all(np.abs(u_nominal - u_cbf) <= self._cbf_switch_control_diff_thres)
-            and np.all(self._estimated_state[2:] >= self._cbf_switch_velocity_thres)
-        ):
-            # condition to set deactivate the switch
-            logger.debug("Switch deactivated")
-            self._switch_active = False
-
-            # add time to the visualizer
-            self.visualizer.data.cbf_switch_deactive.append(self._t_control)
-        elif not self._switch_active and (
-            np.all(np.abs(u_nominal - u_cbf) > self._cbf_switch_control_diff_thres)
-            and np.all(self._estimated_state[2:] < self._cbf_switch_velocity_thres)
-        ):
-            logger.debug("Switch activated")
-            # condition to activate the switch
-            self._switch_active = True
-
-            # add time to the visualizer
-            self.visualizer.data.cbf_switch_active.append(self._t_control)
 
     def calculate_safety_filter_constraints(
         self,
