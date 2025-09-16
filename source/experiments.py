@@ -171,11 +171,10 @@ class ClutteredEnvironment:
                 },
                 {
                     "type": "circle",
-                    "center": [-4.0, -8.],
+                    "center": [-4.0, -8.0],
                     "radius": 1.5,
                     "robot_radius": robot_radius,
                 },
-
             ],
             "sensors": [
                 {"center": [-7.0, 3.0], "max_distance": 10},
@@ -251,20 +250,23 @@ if __name__ == "__main__":
 
     # for now only use fake experiment and experiment_mode 3 to set everything up
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
-    experiments = [cluttered_experiment]
-    experiment_modes = [0, 1, 2, 3]
-    # experiment_modes = [3]
+    experiments = [fabric_experiment]
+    safety_modes = [0, 1, 2, 3]
+    seeds = [7, 15, 22, 28, 33, 43]
 
-    # iterate over the experiments
-    # experiment modes:
-    # 0: Baseline
-    # 1: Global max based on confidence level
-    # 2: Gloabl risk-aware approach based on percentiles
-    # 3: Local risk-aware horizon approach
+    # iterate over the experiments, basically there are 4 robots with a different
+    # safety strategy
+    # safety strategy modes:
+    # 0: Baseline (robot_0)
+    # 1: Global max based on confidence level (robot_1)
+    # 2: Gloabl risk-aware approach based on percentiles (robot_2)
+    # 3: Local risk-aware horizon approach (robot_3)
     for experiment in experiments:
-        for i in experiment_modes:
-            env.run_env_from_file(
-                env_file=experiment.env_json_path,
-                env_folder=f"{experiment.experiment_name}_{i}",
-                experiment_mode=i,
-            )
+        for i in safety_modes:
+            for seed in seeds:
+                np.random.seed(seed)
+                env.run_env_from_file(
+                    env_file=experiment.env_json_path,
+                    env_folder=f"{experiment.experiment_name}_{i}_seed_{seed}",
+                    experiment_mode=i,
+                )

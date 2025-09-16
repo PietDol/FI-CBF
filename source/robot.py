@@ -69,9 +69,9 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
-            # load_lipschitz_grid_path="./runs/experiment_fabric_success/simulation_results/fabric_experiment_0",
+            load_lipschitz_grid_path="./runs/experiment_fabric_success/simulation_results/fabric_experiment_0",
             # load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
-            load_lipschitz_grid_path="./runs/experiment_cluttered_success/simulation_results/cluttered_experiment_0",
+            # load_lipschitz_grid_path="./runs/experiment_cluttered_success/simulation_results/cluttered_experiment_0",
         )
 
         # create cbf costmap
