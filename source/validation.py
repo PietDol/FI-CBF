@@ -287,11 +287,12 @@ class ValidateSimulation:
 class ValidateExperiments:
     def __init__(self, validate_cfg: dict):
         self.validate_cfg = validate_cfg
-        self.validation_objects = self._create_validation_objects()
+        self.validation_objects, self.dfs = self._create_validation_objects()
 
     def _create_validation_objects(self):
         # function to create the validation objects
         validation_objects = {}
+        dfs = {}
 
         # iterate over all the experiment modes
         for exp_folder in self.validate_cfg["exp_folders"]:
@@ -299,6 +300,8 @@ class ValidateExperiments:
                 f"{exp_folder}/simulation_results"
             )  # different robots with safety
             robot_dict = {}
+            robot_dict_df = {}
+            exp_mode = exp_folder.split("/")[-1]
 
             # iterate over the
             for robot in robots:
@@ -309,21 +312,25 @@ class ValidateExperiments:
                 # iterate over all te seeds
                 seed_folders = os.listdir(f"{exp_folder}/simulation_results/{robot}")
                 seed_dict = {}
+                seed_dict_df = {}
                 for seed_folder in seed_folders:
                     seed = seed_folder.split("_")[-1]
                     validater = ValidateSimulation(
                         sim_dir=f"{exp_folder}/simulation_results/{robot}/{seed_folder}"
                     )
                     seed_dict[seed] = validater
+                    df = validater.data.to_pandas(exp_mode, robot, seed)
+                    seed_dict_df[seed] = df
 
                 # add the all the objects for this robot and the different seeds to the robot_dict
                 robot_dict[robot] = seed_dict
+                robot_dict_df[robot] = seed_dict_df
 
             # add all the robots for this experiment to the validation_objects
-            exp_mode = exp_folder.split("/")[-1]
             validation_objects[exp_mode] = robot_dict
+            dfs[exp_mode] = robot_dict_df
 
-        return validation_objects
+        return validation_objects, dfs
 
     def to_dataframe(self):
         rows = []
@@ -340,6 +347,11 @@ class ValidateExperiments:
                     )
                     rows.append(run_row)
         df = pd.DataFrame(rows)
+        return df
+    
+    def load_dataframe(self, df_path: str):
+        # load the df from a csv
+        df = pd.read_csv(df_path)
         return df
 
     def _plot_boxplot_on_ax(
@@ -422,7 +434,7 @@ class ValidateExperiments:
             .reset_index()
         )
         logger.info(summary)
-    
+
     def creat_cbf_plots(self):
         for exp_mode, exp_dict in self.validation_objects.items():
             # Step 1: Collect data: cbf_mode -> robot -> values
@@ -454,35 +466,69 @@ class ValidateExperiments:
 
             plt.tight_layout()
             plt.show()
-    
-    def generate_report(self):
+
+    def generate_report(self, df_path: str = None):
         """
         Generate a static HTML report with:
         - summary table
         - full tables split per experiment
         Also saves summary and full data for reuse.
         """
-        df = self.to_dataframe()
+        if df_path is not None:
+            df = self.load_dataframe(df_path=df_path)
+        else:
+            df = self.to_dataframe()
         outdir = self.validate_cfg["val_dir"]
         os.makedirs(outdir, exist_ok=True)
 
         # create the summary table
-        summary = (df.groupby(["experiment", "robot"])
-                    .agg(goal_rate=("goal_reached", "mean") if "goal_reached" in df else ("seed", "count"),
-                        dist_mean=("dist_mean", "mean") if "dist_mean" in df else ("seed", "count"),
-                        dist_std=("dist_mean", "std") if "dist_mean" in df else ("seed", "count"),
-                        interv_rate=("intervention_rate", "mean") if "intervention_rate" in df else ("seed", "count"),
-                        interv_mean=("intervention_mean", "mean") if "intervention_mean" in df else ("seed", "count"))
-                    .sort_values(["experiment", "robot"])
-                    .round(3))
-        logger.succes("Summary table created")
+        summary = (
+            df.groupby(["experiment", "robot"])
+            .agg(
+                goal_rate=(
+                    ("goal_reached", "mean")
+                    if "goal_reached" in df
+                    else ("seed", "count")
+                ),
+                dist_mean=(
+                    ("dist_mean", "mean") if "dist_mean" in df else ("seed", "count")
+                ),
+                dist_std=(
+                    ("dist_mean", "std") if "dist_mean" in df else ("seed", "count")
+                ),
+                interv_rate=(
+                    ("intervention_rate", "mean")
+                    if "intervention_rate" in df
+                    else ("seed", "count")
+                ),
+                interv_mean=(
+                    ("intervention_mean", "mean")
+                    if "intervention_mean" in df
+                    else ("seed", "count")
+                ),
+                h_diff_mean=(
+                    ("h_diff_mean", "mean")
+                    if "h_diff_mean" in df
+                    else ("seed", "count")
+                ),
+                sm_mean=(
+                    ("sm_mean_mean", "mean")
+                    if "sm_mean_mean" in df
+                    else ("seed", "count")
+                ),
+            )
+            .sort_values(["experiment", "robot"])
+            .round(3)
+        )
+        logger.success("Summary table created")
 
         try:
-            summary_html = (summary.style
-                            .background_gradient(axis=None)
-                            .set_caption("Summary by experiment × robot")
-                            .format("{:.3f}")
-                            .to_html())
+            summary_html = (
+                summary.style.background_gradient(axis=None)
+                .set_caption("Summary by experiment × robot")
+                .format("{:.3f}")
+                .to_html()
+            )
         except Exception:
             summary_html = summary.to_html()
 
@@ -490,7 +536,7 @@ class ValidateExperiments:
         summary.to_csv(os.path.join(outdir, "summary.csv"))
         df.to_csv(os.path.join(outdir, "full_table.csv"), index=False)
 
-        # create the full tables per experiment
+        # create the full tables per experiment for the html page
         experiment_tables_html = ""
         for exp in sorted(df["experiment"].unique()):
             df_exp = df[df["experiment"] == exp].copy()
@@ -564,6 +610,7 @@ class ValidateExperiments:
         logger.success(f"Summary saved to {outdir}/summary.csv")
         logger.success(f"Full data saved to {outdir}/full_table.csv")
 
+
 if __name__ == "__main__":
     # experiment_modes = [0, 1, 2, 3]
     # for i in experiment_modes:
@@ -580,8 +627,8 @@ if __name__ == "__main__":
             "./runs/cluttered_exp",
         ],
         "exp_colors": ["k", "g", "r", "b"],
-        "val_dir": "./runs/validation"
+        "val_dir": "./runs/validation/validation_debug",
     }
     validate_experiments = ValidateExperiments(validate_cfg=validate_cfg)
-    validate_experiments.generate_report()
+    validate_experiments.generate_report("./runs/validation/full_table.csv")
     # validate_experiments.creat_cbf_plots()

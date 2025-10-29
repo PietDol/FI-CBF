@@ -190,9 +190,121 @@ class ClutteredEnvironment:
         logger.success(f"Cluttered environment saved: {self.env_json_path}")
 
 
+# control experiment: different gaps so see limitation
+class GapEnvironment:
+    def __init__(self, env_dir):
+        self.env_dir = env_dir
+        self.experiment_name = "gap_experiment"
+        self.env_json_path = f"{self.env_dir}/{self.experiment_name}.json"
+        self.save_env_json()
+
+    def save_env_json(self):
+        robot_radius = 0.7071
+
+        env_dict = {
+            "start_pos": [-12.0, 0.0],
+            "start_vel": [0.0, 0.0],
+            "goal_pos": [11.0, 0.0],
+            "obstacles": [
+                # opening 1: 3 m
+                {
+                    "type": "circle",
+                    "center": [-7.0, -4.0],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [-7.0, 4.0],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                # opening 2: 2.75 m
+                {
+                    "type": "circle",
+                    "center": [-4.0, -3.875],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [-4.0, 3.875],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                # opening 3: 2.5 m
+                {
+                    "type": "circle",
+                    "center": [-1.0, -3.75],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [-1.0, 3.75],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                # opening 4: 2.25 m
+                {
+                    "type": "circle",
+                    "center": [2.0, -3.625],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [2.0, 3.625],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                # opening 5: 2.0 m
+                {
+                    "type": "circle",
+                    "center": [5.0, -3.5],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [5.0, 3.5],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                # opening 6: 1.9 m
+                {
+                    "type": "circle",
+                    "center": [8.0, -3.45],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [8.0, 3.45],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+            ],
+            # sensor at each opening
+            "sensors": [
+                {"center": [-7.0, 0.0], "max_distance": 3.5},
+                {"center": [-4.0, 0.0], "max_distance": 3.5},
+                {"center": [-1.0, 0.0], "max_distance": 3.5},
+                {"center": [2.0, 0.0], "max_distance": 3.5},
+                {"center": [5.0, 0.0], "max_distance": 3.5},
+                {"center": [8.0, 0.0], "max_distance": 3.5},
+            ],
+        }
+
+        with open(self.env_json_path, "w") as f:
+            json.dump(env_dict, f, indent=4)
+
+        logger.success(f"Cluttered environment saved: {self.env_json_path}")
+
+
 if __name__ == "__main__":
     # directory where the experiments are saved
-    directory = "./runs/experiments"
+    directory = "./runs/experiments_debug"
 
     # set parameters for the environment config
     config = EnvGeneratorConfig(
@@ -205,14 +317,14 @@ if __name__ == "__main__":
         max_obstacle_size={"circle": 3.0, "rectangle": [3.0, 3.0]},
         min_number_of_sensors=1,
         max_number_of_sensors=5,
-        costmap_size=np.array([20, 20]),
+        costmap_size=np.array([26, 26]),
         grid_size=0.1,
         planner_mode="CBF infused A*",
         noise_cost_gain=0.0,  # change for the cost to go through uncertain regions (5.0)
         robot_width=1.0,
         robot_height=1.0,
-        min_values_state=np.array([-10, -10, -1.5, -1.5]),
-        max_values_state=np.array([10, 10, 1.5, 1.5]),
+        min_values_state=np.array([-13, -13, -1.5, -1.5]),
+        max_values_state=np.array([13, 13, 1.5, 1.5]),
         min_sensor_noise=0.0,
         max_sensor_noise=0.1,
         magnitude_threshold=2.0,
@@ -235,9 +347,9 @@ if __name__ == "__main__":
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
-        Kp=0.5,  # 0.5
-        Kd=0.2,  # 0.1
-        u_min_max=np.array([-1000, 1000]),
+        Kp=5,  # 0.5
+        Kd=0.0,  # 0.1 0.2
+        u_min_max=np.array([-3, 3]),
     )
 
     # create the environment
@@ -247,12 +359,15 @@ if __name__ == "__main__":
     fake_experiment = FakeEnvironment(env_dir=directory)
     fabric_experiment = FabricEnvironment(env_dir=directory)
     cluttered_experiment = ClutteredEnvironment(env_dir=directory)
+    gaps_experiment = GapEnvironment(env_dir=directory)
 
     # for now only use fake experiment and experiment_mode 3 to set everything up
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
-    experiments = [fabric_experiment]
+    experiments = [gaps_experiment]
     safety_modes = [0, 1, 2, 3]
+    # safety_modes = [0, 1]
     seeds = [7, 15, 22, 28, 33, 43]
+    # seeds = [7]
 
     # iterate over the experiments, basically there are 4 robots with a different
     # safety strategy

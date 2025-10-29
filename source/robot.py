@@ -69,9 +69,10 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
-            load_lipschitz_grid_path="./runs/experiment_fabric_success/simulation_results/fabric_experiment_0",
+            # load_lipschitz_grid_path="./runs/experiment_fabric_success/simulation_results/fabric_experiment_0",
             # load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
             # load_lipschitz_grid_path="./runs/experiment_cluttered_success/simulation_results/cluttered_experiment_0",
+            load_lipschitz_grid_path="./runs/experiments_debug/simulation_results/gap_experiment_0_seed_7",
         )
 
         # create cbf costmap
@@ -140,6 +141,12 @@ class Robot:
         self._t_estimation = 0.0
 
         # costmaps
+        self._work_domain = np.array(
+            [
+                [-costmap_size[0] / 2, costmap_size[0] / 2],    # x min max
+                [-costmap_size[1] / 2, costmap_size[1] / 2],    # y min max
+            ]
+        )
         self.costmaps = self.get_costmaps()
 
         # log
@@ -258,7 +265,7 @@ class Robot:
         v_max: float,
         noise: float,
         steps_ahead: float = 1.0,
-        work_domain: np.ndarray = np.array([[-10, 10], [-10, 10]]),
+        # work_domain: np.ndarray = np.array([[-10, 10], [-10, 10]]),
     ):
         # function to calculate the reachable set of the robot and the constraint matrices for the QP
         # take 99.7% confidence interval (3 sigma around)
@@ -284,10 +291,10 @@ class Robot:
         )
 
         # make sure robot stays within the working env
-        x_min = max(work_domain[0, 0], x_min)
-        x_max = min(work_domain[0, 1], x_max)
-        y_min = max(work_domain[1, 0], y_min)
-        y_max = min(work_domain[1, 1], y_max)
+        x_min = max(self._work_domain[0, 0], x_min)
+        x_max = min(self._work_domain[0, 1], x_max)
+        y_min = max(self._work_domain[1, 0], y_min)
+        y_max = min(self._work_domain[1, 1], y_max)
 
         # create the matrices for that: Gu <= h (https://github.com/kevin-tracy/qpax)
         G = jnp.array(
@@ -312,16 +319,16 @@ class Robot:
         h = jnp.array(
             [
                 # stay within working domain
-                -work_domain[0, 0]
+                -self._work_domain[0, 0]
                 + self._estimated_state[0]
                 + steps_ahead * self._estimated_state[2] * self._control_dt,  # x_min
-                work_domain[0, 1]
+                self._work_domain[0, 1]
                 - self._estimated_state[0]
                 - steps_ahead * self._estimated_state[2] * self._control_dt,  # x_max
-                -work_domain[1, 0]
+                -self._work_domain[1, 0]
                 + self._estimated_state[1]
                 + steps_ahead * self._estimated_state[3] * self._control_dt,  # y_min
-                work_domain[1, 1]
+                self._work_domain[1, 1]
                 - self._estimated_state[1]
                 - steps_ahead * self._estimated_state[3] * self._control_dt,  # y_max
                 # v < v_max
@@ -360,6 +367,7 @@ class Robot:
         conf_level, v_max, k = self.confidence_manager.get_confidence_info(noise)
 
         # calculate the reachable set
+
         reachable_set, G_constraints, h_constraints = (
             self.calculate_safety_filter_constraints(
                 v_max=v_max, noise=noise, steps_ahead=2.0
@@ -394,6 +402,11 @@ class Robot:
                 h,
             )
         )
+        
+        debug = False
+        if debug:
+            logger.debug(f"u_nom: {u_nominal} -> u_cbf: {u_cbf}")
+            logger.debug(f"L_Lfh: {L_Lfh}, L_Lgh: {L_Lgh}")
 
         # add all the data
         self.visualizer.data.Lfh_est.append(Lfh_est)
@@ -413,8 +426,15 @@ class Robot:
         self.visualizer.data.conf_level.append(conf_level)
 
         # update the state of the system
-        self._true_state[2:] += u_cbf
-        self._true_state[:2] += self._true_state[2:] * self._control_dt
+        # self._true_state[2:] += u_cbf 
+        # self._true_state[:2] += self._true_state[2:] * self._control_dt
+        if debug:
+            logger.debug(f"before update: {self._true_state}")
+            logger.debug(f"addition: {u_cbf * self._control_dt}")
+        self._true_state[:2] += u_cbf * self._control_dt
+        self._true_state[2:] = u_cbf 
+        if debug:
+            logger.debug(f"after update: {self._true_state}")
 
     def state_estimation_update(self):
         # method to get the state estimation of the robot

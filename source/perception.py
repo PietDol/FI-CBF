@@ -711,7 +711,7 @@ class Perception:
                             L_Lghs, float(key), axis=1
                         )
 
-        # iterate over the grids
+        # iterate over the grids to save them
         for key in L_Lfh_grid.keys():
             # save the grids
             np.save(

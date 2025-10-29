@@ -12,7 +12,8 @@ class RobotCBFConfig(CBFConfig):
 
     def f(self, z):
         px, py, vx, vy = z
-        return jnp.array([vx, vy, 0, 0])
+        # return jnp.array([vx, vy, 0, 0])
+        return jnp.zeros(4)
 
     def g(self, z):
         # return jnp.block([[jnp.zeros((2, 2))], [jnp.eye(2)]])

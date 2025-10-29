@@ -5,6 +5,7 @@ import os
 import jax.numpy as jnp
 from jax.core import Tracer
 import jax
+import pandas as pd
 
 
 class VisualizationData:
@@ -57,6 +58,89 @@ class VisualizationData:
                     setattr(self, attr, np.array(value))
 
             self.converted_to_numpy = True
+
+    def to_pandas(self, experiment=None, robot=None, seed=None):
+        # convert to pandas dataframe, metadata can be added for the experiments
+        if not self.converted_to_numpy:
+            self.to_numpy()
+
+        # variables to skip (big 2D grids or not aligned with control time)
+        variables_to_skip = {
+            "robot_pos_estimated",
+            "state_estimation_time",
+            "planner_costmap",
+            "cbf_costmap",
+            "perception_magnitude_costmap",
+            "noise_costmap",
+            "sensor_positions",
+            "path",
+            "converted_to_numpy",
+        }
+
+        # base dataframe with time
+        n = len(self.control_time)
+        df = pd.DataFrame({"time": self.control_time})
+
+        # add metadata if provided
+        if experiment is not None:
+            df["experiment"] = experiment
+        if robot is not None:
+            df["robot"] = robot
+        if seed is not None:
+            df["seed"] = seed
+
+        batch_frames = []  # collect per-attribute DataFrames here
+        for attr, value in self.__dict__.items():
+            if (
+                attr in variables_to_skip
+                or not isinstance(value, np.ndarray)
+                or len(value) == 0
+            ):
+                continue
+
+            # 1D arrays aligned with time
+            if value.ndim == 1:
+                if len(value) == n:
+                    batch_frames.append(pd.DataFrame({attr: value}))
+                else:
+                    logger.error(f"{attr} not the same size: {len(value)} != {n}")
+
+            # 2D arrays (e.g., u_cbf, u_nominal, h_true with multiple obstacles)
+            elif value.ndim == 2:
+                if value.shape[0] == n:
+                    cols = [f"{attr}_{i}" for i in range(value.shape[1])]
+                    batch_frames.append(pd.DataFrame(value, columns=cols))
+                else:
+                    logger.error(f"{attr} not the same size: {len(value)} != {n}")
+
+        # Concatenate once to avoid fragmentation
+        if batch_frames:
+            df = pd.concat([df] + batch_frames, axis=1, copy=False)
+
+        # # iterate over attributes
+        # for attr, value in self.__dict__.items():
+        #     if attr in variables_to_skip:
+        #         continue
+        #     if not isinstance(value, np.ndarray):
+        #         continue
+        #     if len(value) == 0:
+        #         continue
+
+        #     # handle 1D arrays
+        #     if value.ndim == 1:
+        #         if len(value) == n:  # only include if same length as control_time
+        #             df[attr] = value
+        #         else:
+        #             logger.error(f"{attr} not the same size: {len(value)} != {n}")
+        #     # handle 2D arrays (e.g. u_cbf, u_nominal, h_true with multiple obstacles)
+        #     elif value.ndim == 2:
+        #         if value.shape[0] == n:
+        #             for i in range(value.shape[1]):
+        #                 df[f"{attr}_{i}"] = value[:, i]
+        #         else:
+        #             logger.error(f"{attr} not the same size: {len(value)} != {n}")
+
+        return df
 
     def save_data(self, dir):
         # function to save all the data to npy files
@@ -152,25 +236,25 @@ class VisualizeSimulation:
         ax.set_ylabel("Noise")
         ax.grid(True)
         return ax
-    
+
     def plot_k(self, ax):
         # function to plot the k over time
         t_control = self.data.control_time
         k = self.data.k
         ax.plot(t_control, k)
-        ax.set_ylim(0.0, max(k)+0.5)
+        ax.set_ylim(0.0, max(k) + 0.5)
         ax.set_title(f"k over time")
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("k [-]")
         ax.grid(True)
         return ax
-    
+
     def plot_v_max(self, ax):
         # function to plot the v_max over time
         t_control = self.data.control_time
         v_max = self.data.v_max
         ax.plot(t_control, v_max)
-        ax.set_ylim(0.0, max(v_max)+0.5)
+        ax.set_ylim(0.0, max(v_max) + 0.5)
         ax.set_title(f"v_max over time")
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("v_max [m/s]")
@@ -474,10 +558,10 @@ class VisualizeSimulation:
 
         # compute empirical L_Lgh
         # we need to compare the lgh time u with L_Lgh * |u|
-        dot_true = np.einsum('tki,ti->tk', Lgh_true, u_cbf)
-        dot_est  = np.einsum('tki,ti->tk', Lgh_est, u_cbf)
-        empirical_L_Lgh = np.abs(dot_true - dot_est) / delta_pos[:, None] 
-        u_norm =  np.linalg.norm(u_cbf, axis=1)
+        dot_true = np.einsum("tki,ti->tk", Lgh_true, u_cbf)
+        dot_est = np.einsum("tki,ti->tk", Lgh_est, u_cbf)
+        empirical_L_Lgh = np.abs(dot_true - dot_est) / delta_pos[:, None]
+        u_norm = np.linalg.norm(u_cbf, axis=1)
         L_Lgh_est = L_Lgh_est * u_norm[:, None]
 
         # create the figure
@@ -486,7 +570,9 @@ class VisualizeSimulation:
             # Lfh and L_Lfh
             axes[0, i].plot(t_control, empirical_L_Lfh[:, i], label="Empirical L_Lfh")
             axes[0, i].plot(t_control, L_Lfh_est[:, i], label="Estimated L_Lfh")
-            axes[0, i].set_title(f"Estimated L_Lfh and emprical L_Lfh over time [Barrier {i}]")
+            axes[0, i].set_title(
+                f"Estimated L_Lfh and emprical L_Lfh over time [Barrier {i}]"
+            )
             axes[0, i].grid(True)
             axes[0, i].legend()
             axes[0, i].set_xlabel("Time [s]")
@@ -500,10 +586,10 @@ class VisualizeSimulation:
             axes[1, i].legend()
             axes[1, i].set_xlabel("Time [s]")
             axes[1, i].set_ylabel("Derivatives [-]")
-        
+
         plt.savefig(filename)
         logger.success(f"Lie derivatives and Lipschitz constants saved: {filename}")
-    
+
     def create_full_plot(self, planner, filename=None):
         # convert lists to array
         self.data.to_numpy()
