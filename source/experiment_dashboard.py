@@ -225,17 +225,20 @@ if __name__ == "__main__":
     # df_full = pd.read_csv("./runs/validation/full_table.csv")
 
     # gaps experiment -> new relative degree
-    df_summary = pd.read_csv("./runs/validation/validation_gaps_exp/summary.csv")
-    df_full = pd.read_csv("./runs/validation/validation_gaps_exp/full_table.csv")
+    df_summary = pd.read_csv("./runs/validation/validation_gaps_exp_full/summary.csv")
+    df_full = pd.read_csv("./runs/validation/validation_gaps_exp_full/full_table.csv")
     validate_cfg = {
         "exp_folders": [
             # "./runs/fake_exp",
             # "./runs/fabric_exp",
             # "./runs/cluttered_exp",
-            "./runs/gaps_exp",
+            "./runs/gaps_exp_0_1",
+            "./runs/gaps_exp_0_2",
+            "./runs/gaps_exp_0_3",
+            # "./runs/gaps_exp_slack",
         ],
         "exp_colors": ["k", "g", "r", "b"],
-        "val_dir": "./runs/validation/validation_gaps_exp",
+        "val_dir": "./runs/validation/validation_gaps_exp_full",
     }
     validate_experiments = ValidateExperiments(validate_cfg=validate_cfg)
     # validate_experiments.generate_report()

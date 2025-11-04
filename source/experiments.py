@@ -347,7 +347,7 @@ if __name__ == "__main__":
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
-        Kp=5,  # 0.5
+        Kp=0.5,  # 0.5
         Kd=0.0,  # 0.1 0.2
         u_min_max=np.array([-3, 3]),
     )
@@ -365,7 +365,7 @@ if __name__ == "__main__":
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
     experiments = [gaps_experiment]
     safety_modes = [0, 1, 2, 3]
-    # safety_modes = [0, 1]
+    # safety_modes = [3]
     seeds = [7, 15, 22, 28, 33, 43]
     # seeds = [7]
 

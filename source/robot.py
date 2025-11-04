@@ -143,8 +143,8 @@ class Robot:
         # costmaps
         self._work_domain = np.array(
             [
-                [-costmap_size[0] / 2, costmap_size[0] / 2],    # x min max
-                [-costmap_size[1] / 2, costmap_size[1] / 2],    # y min max
+                [-costmap_size[0] / 2, costmap_size[0] / 2],  # x min max
+                [-costmap_size[1] / 2, costmap_size[1] / 2],  # y min max
             ]
         )
         self.costmaps = self.get_costmaps()
@@ -260,93 +260,151 @@ class Robot:
         self.visualizer.data.cbf_costmap = costmaps["cbf_costmap"]
         return costmaps
 
+    # def calculate_safety_filter_constraints(
+    #     self,
+    #     v_max: float,
+    #     noise: float,
+    #     steps_ahead: float = 1.0,
+    #     # work_domain: np.ndarray = np.array([[-10, 10], [-10, 10]]),
+    # ):
+    #     # function to calculate the reachable set of the robot and the constraint matrices for the QP
+    #     # take 99.7% confidence interval (3 sigma around)
+    #     x_min = (
+    #         self._estimated_state[0]
+    #         - 3 * noise
+    #         - steps_ahead * v_max * self._control_dt
+    #     )
+    #     x_max = (
+    #         self._estimated_state[0]
+    #         + 3 * noise
+    #         + steps_ahead * v_max * self._control_dt
+    #     )
+    #     y_min = (
+    #         self._estimated_state[1]
+    #         - 3 * noise
+    #         - steps_ahead * v_max * self._control_dt
+    #     )
+    #     y_max = (
+    #         self._estimated_state[1]
+    #         + 3 * noise
+    #         + steps_ahead * v_max * self._control_dt
+    #     )
+
+    #     # make sure robot stays within the working env
+    #     x_min = max(self._work_domain[0, 0], x_min)
+    #     x_max = min(self._work_domain[0, 1], x_max)
+    #     y_min = max(self._work_domain[1, 0], y_min)
+    #     y_max = min(self._work_domain[1, 1], y_max)
+
+    #     # create the matrices for that: Gu <= h (https://github.com/kevin-tracy/qpax)
+    #     G = jnp.array(
+    #         [
+    #             # stay within working domain
+    #             [-steps_ahead * self._control_dt, 0],  # x_min
+    #             [steps_ahead * self._control_dt, 0],  # x_max
+    #             [0, -steps_ahead * self._control_dt],  # y_min
+    #             [0, steps_ahead * self._control_dt],  # y_max
+    #             # v < v_max
+    #             [-1, 0],  # > -v_max
+    #             [1, 0],  # < v_max
+    #             [0, -1],  # > -v_max
+    #             [0, 1],  # < v_max
+    #             # stay within reachable set
+    #             [-steps_ahead * self._control_dt, 0],  # x_min
+    #             [steps_ahead * self._control_dt, 0],  # x_max
+    #             [0, -steps_ahead * self._control_dt],  # y_min
+    #             [0, steps_ahead * self._control_dt],  # y_max
+    #         ]
+    #     )
+    #     h = jnp.array(
+    #         [
+    #             # stay within working domain
+    #             -self._work_domain[0, 0]
+    #             + self._estimated_state[0]
+    #             + steps_ahead * self._estimated_state[2] * self._control_dt,  # x_min
+    #             self._work_domain[0, 1]
+    #             - self._estimated_state[0]
+    #             - steps_ahead * self._estimated_state[2] * self._control_dt,  # x_max
+    #             -self._work_domain[1, 0]
+    #             + self._estimated_state[1]
+    #             + steps_ahead * self._estimated_state[3] * self._control_dt,  # y_min
+    #             self._work_domain[1, 1]
+    #             - self._estimated_state[1]
+    #             - steps_ahead * self._estimated_state[3] * self._control_dt,  # y_max
+    #             # v < v_max
+    #             v_max + self._estimated_state[2],  # > -v_max
+    #             v_max - self._estimated_state[2],  # < v_max
+    #             v_max + self._estimated_state[3],  # > -v_max
+    #             v_max - self._estimated_state[3],  # < v_max
+    #             # stay within reachable set
+    #             steps_ahead * (v_max + self._estimated_state[2]) * self._control_dt
+    #             + 3 * noise,  # x_min
+    #             steps_ahead * (v_max - self._estimated_state[2]) * self._control_dt
+    #             + 3 * noise,  # x_max
+    #             steps_ahead * (v_max + self._estimated_state[3]) * self._control_dt
+    #             + 3 * noise,  # y_min
+    #             steps_ahead * (v_max - self._estimated_state[3]) * self._control_dt
+    #             + 3 * noise,  # y_max
+    #         ]
+    #     )
+    #     return np.array([[x_min, x_max], [y_min, y_max]]), G, h
+
     def calculate_safety_filter_constraints(
         self,
         v_max: float,
         noise: float,
         steps_ahead: float = 1.0,
-        # work_domain: np.ndarray = np.array([[-10, 10], [-10, 10]]),
     ):
-        # function to calculate the reachable set of the robot and the constraint matrices for the QP
-        # take 99.7% confidence interval (3 sigma around)
-        x_min = (
-            self._estimated_state[0]
-            - 3 * noise
-            - steps_ahead * v_max * self._control_dt
-        )
-        x_max = (
-            self._estimated_state[0]
-            + 3 * noise
-            + steps_ahead * v_max * self._control_dt
-        )
-        y_min = (
-            self._estimated_state[1]
-            - 3 * noise
-            - steps_ahead * v_max * self._control_dt
-        )
-        y_max = (
-            self._estimated_state[1]
-            + 3 * noise
-            + steps_ahead * v_max * self._control_dt
-        )
+        dt = self._control_dt * steps_ahead
+        x_hat = self._estimated_state[0] 
+        y_hat = self._estimated_state[1]
 
-        # make sure robot stays within the working env
-        x_min = max(self._work_domain[0, 0], x_min)
-        x_max = min(self._work_domain[0, 1], x_max)
-        y_min = max(self._work_domain[1, 0], y_min)
-        y_max = min(self._work_domain[1, 1], y_max)
+        pad = 3.0 * noise + steps_ahead * v_max * dt
+        x_min = x_hat - pad
+        x_max = x_hat + pad
+        y_min = y_hat - pad
+        y_max = y_hat + pad
 
-        # create the matrices for that: Gu <= h (https://github.com/kevin-tracy/qpax)
-        G = jnp.array(
+        # extra work-domain rows
+        xwd_min, xwd_max = self._work_domain[0]
+        ywd_min, ywd_max = self._work_domain[1]
+
+        G = jnp.vstack(
             [
-                # stay within working domain
-                [-steps_ahead * self._control_dt, 0],  # x_min
-                [steps_ahead * self._control_dt, 0],  # x_max
-                [0, -steps_ahead * self._control_dt],  # y_min
-                [0, steps_ahead * self._control_dt],  # y_max
-                # v < v_max
-                [-1, 0],  # > -v_max
-                [1, 0],  # < v_max
-                [0, -1],  # > -v_max
-                [0, 1],  # < v_max
-                # stay within reachable set
-                [-steps_ahead * self._control_dt, 0],  # x_min
-                [steps_ahead * self._control_dt, 0],  # x_max
-                [0, -steps_ahead * self._control_dt],  # y_min
-                [0, steps_ahead * self._control_dt],  # y_max
+                # work-domain
+                [-dt, 0],
+                [dt, 0],
+                [0, -dt],
+                [0, dt],  
+                # |u| <= v_max
+                [-1, 0],
+                [1, 0],
+                [0, -1],
+                [0, 1],  
+                # reachable set
+                [-dt, 0],
+                [dt, 0],
+                [0, -dt],
+                [0, dt],  
             ]
         )
-        h = jnp.array(
+        h = jnp.hstack(
             [
-                # stay within working domain
-                -self._work_domain[0, 0]
-                + self._estimated_state[0]
-                + steps_ahead * self._estimated_state[2] * self._control_dt,  # x_min
-                self._work_domain[0, 1]
-                - self._estimated_state[0]
-                - steps_ahead * self._estimated_state[2] * self._control_dt,  # x_max
-                -self._work_domain[1, 0]
-                + self._estimated_state[1]
-                + steps_ahead * self._estimated_state[3] * self._control_dt,  # y_min
-                self._work_domain[1, 1]
-                - self._estimated_state[1]
-                - steps_ahead * self._estimated_state[3] * self._control_dt,  # y_max
-                # v < v_max
-                v_max + self._estimated_state[2],  # > -v_max
-                v_max - self._estimated_state[2],  # < v_max
-                v_max + self._estimated_state[3],  # > -v_max
-                v_max - self._estimated_state[3],  # < v_max
-                # stay within reachable set
-                steps_ahead * (v_max + self._estimated_state[2]) * self._control_dt
-                + 3 * noise,  # x_min
-                steps_ahead * (v_max - self._estimated_state[2]) * self._control_dt
-                + 3 * noise,  # x_max
-                steps_ahead * (v_max + self._estimated_state[3]) * self._control_dt
-                + 3 * noise,  # y_min
-                steps_ahead * (v_max - self._estimated_state[3]) * self._control_dt
-                + 3 * noise,  # y_max
+                x_hat - xwd_min,
+                xwd_max - x_hat,
+                y_hat - ywd_min,
+                ywd_max - y_hat,
+                v_max,
+                v_max,
+                v_max,
+                v_max,
+                x_hat - x_min,
+                x_max - x_hat,
+                y_hat - y_min,
+                y_max - y_hat,
             ]
         )
+
         return np.array([[x_min, x_max], [y_min, y_max]]), G, h
 
     #########################################################
@@ -392,7 +450,7 @@ class Robot:
 
         # apply safety filter to the control input
         # new version
-        u_cbf, h_est, h_true, Lfh_est, Lfh_true, Lgh_est, Lgh_true = (
+        u_cbf, h_est, h_true, Lfh_est, Lfh_true, Lgh_est, Lgh_true, t_qp = (
             self.cbf.safety_filter(
                 self._estimated_state,
                 u_nominal,
@@ -402,9 +460,10 @@ class Robot:
                 h,
             )
         )
-        
+
         debug = False
         if debug:
+            logger.debug(f"relaxation term: {t_qp}")
             logger.debug(f"u_nom: {u_nominal} -> u_cbf: {u_cbf}")
             logger.debug(f"L_Lfh: {L_Lfh}, L_Lgh: {L_Lgh}")
 
@@ -415,6 +474,7 @@ class Robot:
         self.visualizer.data.Lgh_true.append(Lgh_true)
         self.visualizer.data.L_Lfh.append(L_Lfh)
         self.visualizer.data.L_Lgh.append(L_Lgh)
+        self.visualizer.data.t_qp.append(np.amax(np.array(t_qp)))
         self.visualizer.data.h_true.append(np.array(h_true))
         self.visualizer.data.h_estimated.append(np.array(h_est))
         self.visualizer.data.u_cbf.append(u_cbf)
@@ -426,13 +486,13 @@ class Robot:
         self.visualizer.data.conf_level.append(conf_level)
 
         # update the state of the system
-        # self._true_state[2:] += u_cbf 
+        # self._true_state[2:] += u_cbf
         # self._true_state[:2] += self._true_state[2:] * self._control_dt
         if debug:
             logger.debug(f"before update: {self._true_state}")
             logger.debug(f"addition: {u_cbf * self._control_dt}")
         self._true_state[:2] += u_cbf * self._control_dt
-        self._true_state[2:] = u_cbf 
+        self._true_state[2:] = u_cbf
         if debug:
             logger.debug(f"after update: {self._true_state}")
 

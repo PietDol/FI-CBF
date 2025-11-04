@@ -36,6 +36,7 @@ class VisualizationData:
         self.Lgh_true = []
         self.L_Lfh = []
         self.L_Lgh = []
+        self.t_qp = []
         self.converted_to_numpy = False
 
     @classmethod
