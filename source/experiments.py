@@ -301,6 +301,78 @@ class GapEnvironment:
 
         logger.success(f"Cluttered environment saved: {self.env_json_path}")
 
+# debug experiment: an environment to play around with different obstacles
+class DebugEnvironment:
+    def __init__(self, env_dir):
+        self.env_dir = env_dir
+        self.experiment_name = "debug_experiment"
+        self.env_json_path = f"{self.env_dir}/{self.experiment_name}.json"
+        self.save_env_json()
+
+    def save_env_json(self):
+        robot_radius = 0.7071
+
+        env_dict = {
+            "start_pos": [-12.0, 0.0],
+            "start_vel": [0.0, 0.0],
+            "goal_pos": [11.0, 0.0],
+            "obstacles": [
+                # opening 1: 1.8 m
+                {
+                    "type": "circle",
+                    "center": [-7.0, -3.4],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [-7.0, 3.4],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                # opening 2: 1.7 m
+                {
+                    "type": "circle",
+                    "center": [0.5, -3.35],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [0.5, 3.35],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                # opening 3: 1.6 m
+                {
+                    "type": "circle",
+                    "center": [8.0, -3.3],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [8.0, 3.3],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+            ],
+            # sensor at each opening
+            "sensors": [
+                {"center": [-7.0, 0.0], "max_distance": 3.5},
+                {"center": [-4.0, 0.0], "max_distance": 3.5},
+                {"center": [-1.0, 0.0], "max_distance": 3.5},
+                {"center": [2.0, 0.0], "max_distance": 3.5},
+                {"center": [5.0, 0.0], "max_distance": 3.5},
+                {"center": [8.0, 0.0], "max_distance": 3.5},
+            ],
+        }
+
+        with open(self.env_json_path, "w") as f:
+            json.dump(env_dict, f, indent=4)
+
+        logger.success(f"Cluttered environment saved: {self.env_json_path}")
+
 
 if __name__ == "__main__":
     # directory where the experiments are saved
@@ -341,7 +413,7 @@ if __name__ == "__main__":
                 0.01,
                 0.01,
             ],  # with of the sigmoid belonging to the corresponding sigma
-            "percentiles": [80.0, 100.0],
+            "percentiles": [60.0, 70.0, 80.0, 100.0],
         },
         cbf_percentile=80.0,
         control_fps=50,
@@ -360,14 +432,15 @@ if __name__ == "__main__":
     fabric_experiment = FabricEnvironment(env_dir=directory)
     cluttered_experiment = ClutteredEnvironment(env_dir=directory)
     gaps_experiment = GapEnvironment(env_dir=directory)
+    debug_experiment = DebugEnvironment(env_dir=directory)
 
     # for now only use fake experiment and experiment_mode 3 to set everything up
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
-    experiments = [gaps_experiment]
-    safety_modes = [0, 1, 2, 3]
-    # safety_modes = [3]
-    seeds = [7, 15, 22, 28, 33, 43]
-    # seeds = [7]
+    experiments = [debug_experiment]
+    # safety_modes = [0, 1, 2, 3]
+    safety_modes = [3]
+    # seeds = [7, 15, 22, 28, 33, 43]
+    seeds = [7]
 
     # iterate over the experiments, basically there are 4 robots with a different
     # safety strategy

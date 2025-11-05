@@ -77,7 +77,10 @@ class Perception:
         except:
             self.L_Lfh_grids, self.L_Lgh_grids = {}, {}
             for i, level in enumerate(self.conf_levels):
-                v_max = confidence_config["vmax"][i]
+                # v_max = confidence_config["vmax"][i]
+                v_max = (
+                    0.0  # -> does not depend on v, dont expand state space difference
+                )
                 _min_values_state = np.array(
                     [min_values_state[0], min_values_state[1], -v_max, -v_max]
                 )
@@ -108,7 +111,9 @@ class Perception:
         self.save_lipschitz_grids()
 
         # calculate the maximum difference in the grid
-        self.max_L_Lfh_diff, self.max_L_Lgh_diff = self.calculate_max_lipschitz_grid_diff()
+        self.max_L_Lfh_diff, self.max_L_Lgh_diff = (
+            self.calculate_max_lipschitz_grid_diff()
+        )
 
         # create lipschitz consants for different experiment modes
         self.L_Lfhs, self.L_Lghs = self.calculate_lipschitz_constants()
@@ -171,7 +176,7 @@ class Perception:
         # and the constraint matrices, G and h
         # structure of G and h:
         # index 0-3: constraints to stay in working domain
-        # index 4-7: constraints to bound maximum velocity 
+        # index 4-7: constraints to bound maximum velocity
         # index 8-11: constraints to stay within the reachable set
         # round percentile to 1 decimal -> stored in self.L_Lfhs and self.L_Lghs
         percentile = np.round(percentile, 1)
@@ -480,7 +485,7 @@ class Perception:
 
             # add the mask to the masks
             masks.append(mask)
-        
+
         # convert to numpy and return it
         masks = np.array(masks)
         return masks
@@ -515,7 +520,9 @@ class Perception:
         if any(d.size > 0 for d in diffs):
             max_diff = np.max(np.concatenate([d for d in diffs if d.size > 0]))
         else:
-            logger.error("Not able to calculate the maximum difference in the Lipschitz grid!")
+            logger.error(
+                "Not able to calculate the maximum difference in the Lipschitz grid!"
+            )
 
         return max_diff
 
@@ -570,8 +577,8 @@ class Perception:
             conf_dict_L_Lfh_save, conf_dict_L_Lgh_save = {}, {}
             for percentile in self.percentiles:
                 percentile = np.round(percentile, 1)
-                L_Lfhs_2, L_Lghs_2 = (
-                    self._lipschitz_constant_helper(conf_level, percentile)
+                L_Lfhs_2, L_Lghs_2 = self._lipschitz_constant_helper(
+                    conf_level, percentile
                 )
                 conf_dict_L_Lfh[f"{percentile}"] = L_Lfhs_2
                 conf_dict_L_Lgh[f"{percentile}"] = L_Lghs_2
@@ -744,12 +751,20 @@ class Perception:
                 # iterate over the obstacles
                 for i in range(num_obstacles):
                     # extract the grids
-                    L_Lfh_grid = self.L_Lfh_grids[f"{conf_level}"][f"{percentile}"][:, :, i]
-                    L_Lgh_grid = self.L_Lgh_grids[f"{conf_level}"][f"{percentile}"][:, :, i]
+                    L_Lfh_grid = self.L_Lfh_grids[f"{conf_level}"][f"{percentile}"][
+                        :, :, i
+                    ]
+                    L_Lgh_grid = self.L_Lgh_grids[f"{conf_level}"][f"{percentile}"][
+                        :, :, i
+                    ]
 
                     # calculate the maximum difference
-                    _max_L_Lfh_diff[i] = self.calculate_max_diff_grid(L_Lfh_grid, obstacle_masks[i])
-                    _max_L_Lgh_diff[i] = self.calculate_max_diff_grid(L_Lgh_grid, obstacle_masks[i])
+                    _max_L_Lfh_diff[i] = self.calculate_max_diff_grid(
+                        L_Lfh_grid, obstacle_masks[i]
+                    )
+                    _max_L_Lgh_diff[i] = self.calculate_max_diff_grid(
+                        L_Lgh_grid, obstacle_masks[i]
+                    )
 
                 # add to dicts
                 max_L_Lfh_diff_conf[f"{percentile}"] = _max_L_Lfh_diff
@@ -772,7 +787,7 @@ class Perception:
                 max_L_Lgh_diff_save[conf_level][percentile] = max_L_Lgh_diff_save[
                     conf_level
                 ][percentile].tolist()
-        
+
         # and save it
         with open(f"{self.env_dir}/L_Lfh_grid_diffs.json", "w") as L_Lfh_file:
             json.dump(max_L_Lfh_diff_save, L_Lfh_file, indent=4)

@@ -10,6 +10,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 import time
+from collections import deque
 
 
 class Robot:
@@ -72,7 +73,8 @@ class Robot:
             # load_lipschitz_grid_path="./runs/experiment_fabric_success/simulation_results/fabric_experiment_0",
             # load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
             # load_lipschitz_grid_path="./runs/experiment_cluttered_success/simulation_results/cluttered_experiment_0",
-            load_lipschitz_grid_path="./runs/experiments_debug/simulation_results/gap_experiment_0_seed_7",
+            # load_lipschitz_grid_path="./runs/gap_experiments_debug/simulation_results/gap_experiment_0_seed_7",
+            load_lipschitz_grid_path="./runs/experiments_debug/simulation_results/debug_experiment_3_seed_7",
         )
 
         # create cbf costmap
@@ -148,6 +150,13 @@ class Robot:
             ]
         )
         self.costmaps = self.get_costmaps()
+
+        # debug
+        self._prev_dist_to_goal = -1
+        self._timesteps_passed = 0
+        self._lower_conf_timesteps_passed = 0
+        self._normal_cooldown = 0
+        self._cbf_state = "normal"
 
         # log
         logger.success("Robot created")
@@ -356,7 +365,7 @@ class Robot:
         steps_ahead: float = 1.0,
     ):
         dt = self._control_dt * steps_ahead
-        x_hat = self._estimated_state[0] 
+        x_hat = self._estimated_state[0]
         y_hat = self._estimated_state[1]
 
         pad = 3.0 * noise + steps_ahead * v_max * dt
@@ -375,17 +384,17 @@ class Robot:
                 [-dt, 0],
                 [dt, 0],
                 [0, -dt],
-                [0, dt],  
+                [0, dt],
                 # |u| <= v_max
                 [-1, 0],
                 [1, 0],
                 [0, -1],
-                [0, 1],  
+                [0, 1],
                 # reachable set
                 [-dt, 0],
                 [dt, 0],
                 [0, -dt],
-                [0, dt],  
+                [0, dt],
             ]
         )
         h = jnp.hstack(
@@ -424,8 +433,116 @@ class Robot:
         # implementation of confidence manager
         conf_level, v_max, k = self.confidence_manager.get_confidence_info(noise)
 
-        # calculate the reachable set
+        # --- config ---
+        T = 50  # window (~1 s @50Hz)
+        HOLD = 50  # min frames to stay RELAXED before exit
+        COOLDOWN = 50  # min frames to stay NORMAL before re-enter
+        ETA_ENTER = 0.02  # m progress over T to ENTER
+        ETA_EXIT = 0.05  # m progress over T to EXIT
+        H_ENTER = 0.02  # m, near boundary to ENTER
+        H_EXIT = 0.06  # m, safely away to EXIT ( > H_ENTER )
+        PCT_FLOOR = 60.0
+        PCT_STEP = 10.0
+        RAMP_EVERY = 25  # frames between ramp steps (~0.5 s)
+        RELAX_REEVAL_EVERY = 50  # frames between checks to relax further (~1 s @50Hz)
 
+        # --- state (init once) ---
+        if not hasattr(self, "_dist_hist"):
+            self._dist_hist = deque(maxlen=T + 1)
+        if not hasattr(self, "_h_hist"):
+            self._h_hist = deque(maxlen=T)
+        if not hasattr(self, "_normal_cooldown"):
+            self._normal_cooldown = 0
+        if not hasattr(self, "_relax_hold"):
+            self._relax_hold = 0
+        if not hasattr(self, "_active_percentile"):
+            self._active_percentile = self._cbf_percentile
+        if not hasattr(self, "_ramp_counter"):
+            self._ramp_counter = 0
+
+        # --- update histories ---
+        # start after first iteration
+        try:
+            # estimated barrier value at current state (min over obstacles if you have multiple)
+            h_now = np.min(self.visualizer.data.h_estimated[-1])
+            self._h_hist.append(h_now)
+            dist_to_goal = float(
+                np.linalg.norm(self._estimated_state[:2] - self._goal_position)
+            )
+            self._dist_hist.append(dist_to_goal)
+        except:
+            first_iteration = False
+
+        # --- compute window stats only when full ---
+        if len(self._dist_hist) == self._dist_hist.maxlen:
+            progress_window = (
+                self._dist_hist[0] - self._dist_hist[-1]
+            )  # POSITIVE = progress
+            h_min = min(self._h_hist) if len(self._h_hist) else 1e9
+
+            if self._cbf_state == "normal":
+                # cooldown to avoid immediate re-entry
+                if self._normal_cooldown > 0:
+                    self._normal_cooldown -= 1
+                else:
+                    enter = (progress_window < ETA_ENTER) and (h_min < H_ENTER)
+                    if enter:
+                        self._cbf_state = "relaxed"
+                        self._relax_hold = 0
+                        self._active_percentile = max(
+                            self._active_percentile - PCT_STEP, PCT_FLOOR
+                        )  # drop or keep low
+                        self._ramp_counter = 0
+                        logger.debug(
+                            f"Switch to relaxed mode @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                        )
+
+            else:  # RELAXED
+                self._relax_hold += 1
+
+                # --- consider further relaxation every RELAX_REEVAL_EVERY frames ---
+                still_stuck = (progress_window < ETA_ENTER) and (h_min < H_ENTER)
+                time_to_reeval = (self._relax_hold % RELAX_REEVAL_EVERY) == 0
+                can_step_down = (self._active_percentile - PCT_STEP) >= PCT_FLOOR
+
+                if time_to_reeval and still_stuck and can_step_down:
+                    self._active_percentile = max(
+                        self._active_percentile - PCT_STEP, PCT_FLOOR
+                    )
+                    logger.debug(
+                        f"Further relax @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                    )
+
+                # --- exit condition ---
+                exit_ok = (h_min > H_EXIT) and (progress_window >= ETA_EXIT)
+                if (self._relax_hold >= HOLD) and exit_ok:
+                    self._cbf_state = "normal"
+                    self._normal_cooldown = COOLDOWN
+                    logger.debug(
+                        f"Switch to normal mode @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                    )
+
+        # --- choose percentile ---
+        if self._cbf_state == "normal":
+            # gradual ramp toward nominal while progress is healthy
+            if len(self._dist_hist) == self._dist_hist.maxlen:
+                if progress_window >= ETA_EXIT:  # only ramp when making progress
+                    self._ramp_counter += 1
+                    if self._ramp_counter >= RAMP_EVERY:
+                        if self._active_percentile < self._cbf_percentile:
+                            logger.debug(
+                                f"Ramp up percentile @ t={self._t_control:.2f}: percentile -> {self._active_percentile + PCT_STEP}"
+                            )
+                        self._active_percentile = min(
+                            self._active_percentile + PCT_STEP, self._cbf_percentile
+                        )
+                        self._ramp_counter = 0
+
+            cbf_percentile = self._active_percentile
+        else:
+            cbf_percentile = self._active_percentile  # low value while relaxed
+
+        # calculate the reachable set
         reachable_set, G_constraints, h_constraints = (
             self.calculate_safety_filter_constraints(
                 v_max=v_max, noise=noise, steps_ahead=2.0
@@ -443,7 +560,7 @@ class Robot:
             k=k,
             reachable_set=reachable_set,
             confidence_level=conf_level,
-            percentile=self._cbf_percentile,  # for now we take 80% percentile
+            percentile=cbf_percentile,  # for now we take 80% percentile
             G=G_constraints,
             h=h_constraints,
         )
