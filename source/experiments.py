@@ -206,81 +206,81 @@ class GapEnvironment:
             "start_vel": [0.0, 0.0],
             "goal_pos": [11.0, 0.0],
             "obstacles": [
-                # opening 1: 3 m
+                # opening 1: 2.75 m
                 {
                     "type": "circle",
-                    "center": [-7.0, -4.0],
+                    "center": [-7.0, -3.875],
                     "radius": 2.5,
                     "robot_radius": robot_radius,
                 },
                 {
                     "type": "circle",
-                    "center": [-7.0, 4.0],
+                    "center": [-7.0, 3.875],
                     "radius": 2.5,
                     "robot_radius": robot_radius,
                 },
-                # opening 2: 2.75 m
+                # opening 2: 2.5 m
                 {
                     "type": "circle",
-                    "center": [-4.0, -3.875],
-                    "radius": 2.5,
-                    "robot_radius": robot_radius,
-                },
-                {
-                    "type": "circle",
-                    "center": [-4.0, 3.875],
-                    "radius": 2.5,
-                    "robot_radius": robot_radius,
-                },
-                # opening 3: 2.5 m
-                {
-                    "type": "circle",
-                    "center": [-1.0, -3.75],
+                    "center": [-4.0, -3.75],
                     "radius": 2.5,
                     "robot_radius": robot_radius,
                 },
                 {
                     "type": "circle",
-                    "center": [-1.0, 3.75],
+                    "center": [-4.0, 3.75],
                     "radius": 2.5,
                     "robot_radius": robot_radius,
                 },
-                # opening 4: 2.25 m
+                # opening 3: 2.25 m
                 {
                     "type": "circle",
-                    "center": [2.0, -3.625],
-                    "radius": 2.5,
-                    "robot_radius": robot_radius,
-                },
-                {
-                    "type": "circle",
-                    "center": [2.0, 3.625],
-                    "radius": 2.5,
-                    "robot_radius": robot_radius,
-                },
-                # opening 5: 2.0 m
-                {
-                    "type": "circle",
-                    "center": [5.0, -3.5],
+                    "center": [-1.0, -3.625],
                     "radius": 2.5,
                     "robot_radius": robot_radius,
                 },
                 {
                     "type": "circle",
-                    "center": [5.0, 3.5],
+                    "center": [-1.0, 3.625],
                     "radius": 2.5,
                     "robot_radius": robot_radius,
                 },
-                # opening 6: 1.9 m
+                # opening 4: 2.0 m
                 {
                     "type": "circle",
-                    "center": [8.0, -3.45],
+                    "center": [2.0, -3.5],
                     "radius": 2.5,
                     "robot_radius": robot_radius,
                 },
                 {
                     "type": "circle",
-                    "center": [8.0, 3.45],
+                    "center": [2.0, 3.5],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                # opening 5: 1.8 m
+                {
+                    "type": "circle",
+                    "center": [5.0, -3.4],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [5.0, 3.4],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                # opening 6: 1.7 m
+                {
+                    "type": "circle",
+                    "center": [8.0, -3.35],
+                    "radius": 2.5,
+                    "robot_radius": robot_radius,
+                },
+                {
+                    "type": "circle",
+                    "center": [8.0, 3.35],
                     "radius": 2.5,
                     "robot_radius": robot_radius,
                 },
@@ -377,6 +377,7 @@ class DebugEnvironment:
 if __name__ == "__main__":
     # directory where the experiments are saved
     directory = "./runs/experiments_debug"
+    # directory = "./runs/gap_exp_new"
 
     # set parameters for the environment config
     config = EnvGeneratorConfig(
@@ -406,16 +407,18 @@ if __name__ == "__main__":
         cbf_switch_nominal_control_mag=0.1,  # 0.1
         cbf_confidence_config={
             "levels": [1, 2, 3],
-            "vmax": [1.5, 1.0, 0.5],
+            "calculate_grid_per_level": False,   # in our experiment the lipschitz does not depend on velocity
+            "vmax": [3.0, 2.0, 1.0],
             "k": [4.0, 3.0, 2.0],
             "sigma_thresholds": [0.03, 0.07],
             "deltas": [
                 0.01,
                 0.01,
             ],  # with of the sigmoid belonging to the corresponding sigma
-            "percentiles": [60.0, 70.0, 80.0, 100.0],
+            "percentiles": [60.0, 70.0, 80.0, 90.0, 100.0],
+            "percentile_velocity": [0.5, 1.0, 2.0, 2.5, 3.0]
         },
-        cbf_percentile=80.0,
+        cbf_percentile=100.0,
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,

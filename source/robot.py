@@ -74,7 +74,8 @@ class Robot:
             # load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
             # load_lipschitz_grid_path="./runs/experiment_cluttered_success/simulation_results/cluttered_experiment_0",
             # load_lipschitz_grid_path="./runs/gap_experiments_debug/simulation_results/gap_experiment_0_seed_7",
-            load_lipschitz_grid_path="./runs/experiments_debug/simulation_results/debug_experiment_3_seed_7",
+            # load_lipschitz_grid_path="./runs/experiments_debug/simulation_results/debug_experiment_3_seed_7",
+            # load_lipschitz_grid_path="./runs/gap_exp_new/simulation_results/gap_experiment_3_seed_7",
         )
 
         # create cbf costmap
@@ -151,12 +152,23 @@ class Robot:
         )
         self.costmaps = self.get_costmaps()
 
-        # debug
+        # cbf switch mechanism
         self._prev_dist_to_goal = -1
         self._timesteps_passed = 0
         self._lower_conf_timesteps_passed = 0
         self._normal_cooldown = 0
         self._cbf_state = "normal"
+        self._relax_hold = 0
+        self._active_percentile = self._cbf_percentile
+        self._ramp_counter = 0
+        self._calculate_grid_per_level = cbf_confidence_config[
+            "calculate_grid_per_level"
+        ]
+        self._percentile_velocity_dict = {}
+        for i in range(len(cbf_confidence_config["percentiles"])):
+            self._percentile_velocity_dict[
+                f"{cbf_confidence_config['percentiles'][i]}"
+            ] = cbf_confidence_config["percentile_velocity"][i]
 
         # log
         logger.success("Robot created")
@@ -416,6 +428,144 @@ class Robot:
 
         return np.array([[x_min, x_max], [y_min, y_max]]), G, h
 
+    def get_cbf_percentile(
+        self,
+        experiment_mode: int,
+        *,
+        # --- config (same defaults you posted) ---
+        T: int = 50,  # samples in the window (~1 s @50Hz)
+        HOLD: int = 50,  # min frames to stay RELAXED before exit
+        COOLDOWN: int = 50,  # min frames to stay NORMAL before re-enter
+        ETA_ENTER: float = 0.02,  # m progress over T to ENTER RELAXED
+        ETA_EXIT: float = 0.05,  # m progress over T to EXIT RELAXED
+        H_ENTER: float = 0.02,  # m, near boundary to ENTER
+        H_EXIT: float = 0.06,  # m, safely away to EXIT  (> H_ENTER)
+        PCT_FLOOR: float = 60.0,
+        PCT_STEP: float = 10.0,
+        RAMP_EVERY: int = 25,  # frames between ramp steps (~0.5 s)
+        RELAX_REEVAL_EVERY: int = 50,  # frames between further relax checks (~1 s)
+    ):
+        # mechanism to prevent deadlocks be decreasing the percentile for the Lipschitz constants
+        # return the percentile and the corresponding maximum velocity
+        # for experiment 0 and 1 robust safety -> 100%
+        # for experiment 2 we decide to take 80% globally
+        if experiment_mode <= 1:
+            return 100.0, self._percentile_velocity_dict["100.0"]
+        elif experiment_mode == 2:
+            return 80.0, self._percentile_velocity_dict["80.0"]
+
+        # experiment mode 3
+        # -------- one-time state init --------
+        if not hasattr(self, "_dist_hist"):
+            self._dist_hist = deque(maxlen=T + 1)
+        if not hasattr(self, "_h_hist"):
+            self._h_hist = deque(maxlen=T)
+
+        # get last estimated h value and the distance to the goal
+        first_run_done = True
+        try:
+            h_now = float(
+                np.min(self.visualizer.data.h_estimated[-1])
+            ) 
+            dist_to_goal = float(
+                np.linalg.norm(self._estimated_state[:2] - self._goal_position)
+            )
+        except:
+            first_run_done = False
+
+        # if it crashes return 100.0 percentile and corresponding maximum velocity
+        if not first_run_done:
+            return 100.0, self._percentile_velocity_dict["100.0"]
+
+        # Keep nominal up to date (confidence can change over time)
+        self._cbf_percentile = self._cbf_percentile
+
+        # -------- update rolling windows --------
+        self._dist_hist.append(float(dist_to_goal))
+        self._h_hist.append(float(h_now))
+
+        # Default values in case window not yet full
+        progress_window = 0.0
+        h_min = h_now
+
+        # -------- state machine only after warm-up --------
+        if len(self._dist_hist) == self._dist_hist.maxlen:
+            progress_window = (
+                self._dist_hist[0] - self._dist_hist[-1]
+            )  # POSITIVE = progress
+            h_min = min(self._h_hist) if len(self._h_hist) else 1e9
+
+            if self._cbf_state == "normal":
+                # Cooldown to avoid immediate re-entry into RELAXED
+                if self._normal_cooldown > 0:
+                    self._normal_cooldown -= 1
+                else:
+                    # Enter RELAXED if little progress and hugging the boundary
+                    enter = (progress_window < ETA_ENTER) and (h_min < H_ENTER)
+                    if enter:
+                        self._cbf_state = "relaxed"
+                        self._relax_hold = 0
+                        # Step down once on entry (or keep it low if already below)
+                        self._active_percentile = max(
+                            self._active_percentile - PCT_STEP, PCT_FLOOR
+                        )
+                        self._ramp_counter = 0
+                        logger.debug(
+                            f"Switch to relaxed mode @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                        )
+
+            else:  # RELAXED
+                self._relax_hold += 1
+
+                # Consider further relaxation every RELAX_REEVAL_EVERY frames
+                still_stuck = (progress_window < ETA_ENTER) and (h_min < H_ENTER)
+                time_to_reeval = (self._relax_hold % RELAX_REEVAL_EVERY) == 0
+                can_step_down = (self._active_percentile - PCT_STEP) >= PCT_FLOOR
+                if time_to_reeval and still_stuck and can_step_down:
+                    self._active_percentile = max(
+                        self._active_percentile - PCT_STEP, PCT_FLOOR
+                    )
+                    logger.debug(
+                        f"Further relax @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                    )
+
+                # Exit when held long enough AND we’re away from the boundary AND making progress
+                exit_ok = (h_min > H_EXIT) and (progress_window >= ETA_EXIT)
+                if (self._relax_hold >= HOLD) and exit_ok:
+                    self._cbf_state = "normal"
+                    self._normal_cooldown = COOLDOWN
+                    # Do NOT snap percentile back; ramp in NORMAL
+                    logger.debug(
+                        f"Switch to normal mode @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                    )
+
+        # -------- choose percentile for this tick --------
+        if self._cbf_state == "normal":
+            # Gradually ramp toward nominal only when progress is healthy
+            if len(self._dist_hist) == self._dist_hist.maxlen:
+                if (
+                    progress_window >= ETA_EXIT
+                    and self._active_percentile < self._cbf_percentile
+                ):
+                    self._ramp_counter += 1
+                    if self._ramp_counter >= RAMP_EVERY:
+                        self._active_percentile = min(
+                            self._active_percentile + PCT_STEP, self._cbf_percentile
+                        )
+                        self._ramp_counter = 0
+                        logger.debug(
+                            f"Ramp up percentile @ t={self._t_control:.2f}: -> {self._active_percentile}"
+                        )
+
+            cbf_percentile = self._active_percentile
+        else:
+            cbf_percentile = self._active_percentile  # low value while RELAXED
+
+        return (
+            cbf_percentile,
+            self._percentile_velocity_dict[f"{np.round(self._active_percentile, 1)}"],
+        )
+
     #########################################################
     # MAIN METHODS
     #########################################################
@@ -431,116 +581,21 @@ class Robot:
         noise = self.perception.get_perception_noise(self._true_state[2:])
 
         # implementation of confidence manager
-        conf_level, v_max, k = self.confidence_manager.get_confidence_info(noise)
+        conf_level, conf_velocity, k = self.confidence_manager.get_confidence_info(noise)
 
-        # --- config ---
-        T = 50  # window (~1 s @50Hz)
-        HOLD = 50  # min frames to stay RELAXED before exit
-        COOLDOWN = 50  # min frames to stay NORMAL before re-enter
-        ETA_ENTER = 0.02  # m progress over T to ENTER
-        ETA_EXIT = 0.05  # m progress over T to EXIT
-        H_ENTER = 0.02  # m, near boundary to ENTER
-        H_EXIT = 0.06  # m, safely away to EXIT ( > H_ENTER )
-        PCT_FLOOR = 60.0
-        PCT_STEP = 10.0
-        RAMP_EVERY = 25  # frames between ramp steps (~0.5 s)
-        RELAX_REEVAL_EVERY = 50  # frames between checks to relax further (~1 s @50Hz)
+        # get the cbf percentile
+        cbf_percentile, percentile_velocity = self.get_cbf_percentile(
+            experiment_mode=experiment_mode, 
+        )
 
-        # --- state (init once) ---
-        if not hasattr(self, "_dist_hist"):
-            self._dist_hist = deque(maxlen=T + 1)
-        if not hasattr(self, "_h_hist"):
-            self._h_hist = deque(maxlen=T)
-        if not hasattr(self, "_normal_cooldown"):
-            self._normal_cooldown = 0
-        if not hasattr(self, "_relax_hold"):
-            self._relax_hold = 0
-        if not hasattr(self, "_active_percentile"):
-            self._active_percentile = self._cbf_percentile
-        if not hasattr(self, "_ramp_counter"):
-            self._ramp_counter = 0
+        # set the maximum velocity as the minimum of the two mechanism
+        v_max = min(conf_velocity, percentile_velocity)
 
-        # --- update histories ---
-        # start after first iteration
-        try:
-            # estimated barrier value at current state (min over obstacles if you have multiple)
-            h_now = np.min(self.visualizer.data.h_estimated[-1])
-            self._h_hist.append(h_now)
-            dist_to_goal = float(
-                np.linalg.norm(self._estimated_state[:2] - self._goal_position)
-            )
-            self._dist_hist.append(dist_to_goal)
-        except:
-            first_iteration = False
-
-        # --- compute window stats only when full ---
-        if len(self._dist_hist) == self._dist_hist.maxlen:
-            progress_window = (
-                self._dist_hist[0] - self._dist_hist[-1]
-            )  # POSITIVE = progress
-            h_min = min(self._h_hist) if len(self._h_hist) else 1e9
-
-            if self._cbf_state == "normal":
-                # cooldown to avoid immediate re-entry
-                if self._normal_cooldown > 0:
-                    self._normal_cooldown -= 1
-                else:
-                    enter = (progress_window < ETA_ENTER) and (h_min < H_ENTER)
-                    if enter:
-                        self._cbf_state = "relaxed"
-                        self._relax_hold = 0
-                        self._active_percentile = max(
-                            self._active_percentile - PCT_STEP, PCT_FLOOR
-                        )  # drop or keep low
-                        self._ramp_counter = 0
-                        logger.debug(
-                            f"Switch to relaxed mode @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
-                        )
-
-            else:  # RELAXED
-                self._relax_hold += 1
-
-                # --- consider further relaxation every RELAX_REEVAL_EVERY frames ---
-                still_stuck = (progress_window < ETA_ENTER) and (h_min < H_ENTER)
-                time_to_reeval = (self._relax_hold % RELAX_REEVAL_EVERY) == 0
-                can_step_down = (self._active_percentile - PCT_STEP) >= PCT_FLOOR
-
-                if time_to_reeval and still_stuck and can_step_down:
-                    self._active_percentile = max(
-                        self._active_percentile - PCT_STEP, PCT_FLOOR
-                    )
-                    logger.debug(
-                        f"Further relax @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
-                    )
-
-                # --- exit condition ---
-                exit_ok = (h_min > H_EXIT) and (progress_window >= ETA_EXIT)
-                if (self._relax_hold >= HOLD) and exit_ok:
-                    self._cbf_state = "normal"
-                    self._normal_cooldown = COOLDOWN
-                    logger.debug(
-                        f"Switch to normal mode @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
-                    )
-
-        # --- choose percentile ---
-        if self._cbf_state == "normal":
-            # gradual ramp toward nominal while progress is healthy
-            if len(self._dist_hist) == self._dist_hist.maxlen:
-                if progress_window >= ETA_EXIT:  # only ramp when making progress
-                    self._ramp_counter += 1
-                    if self._ramp_counter >= RAMP_EVERY:
-                        if self._active_percentile < self._cbf_percentile:
-                            logger.debug(
-                                f"Ramp up percentile @ t={self._t_control:.2f}: percentile -> {self._active_percentile + PCT_STEP}"
-                            )
-                        self._active_percentile = min(
-                            self._active_percentile + PCT_STEP, self._cbf_percentile
-                        )
-                        self._ramp_counter = 0
-
-            cbf_percentile = self._active_percentile
+        # set confidence level to use for Lipschitz grid
+        if self._calculate_grid_per_level:
+            _conf_level = conf_level
         else:
-            cbf_percentile = self._active_percentile  # low value while relaxed
+            _conf_level = 1
 
         # calculate the reachable set
         reachable_set, G_constraints, h_constraints = (
@@ -559,7 +614,7 @@ class Robot:
             u_nominal=u_nominal,
             k=k,
             reachable_set=reachable_set,
-            confidence_level=conf_level,
+            confidence_level=_conf_level,
             percentile=cbf_percentile,  # for now we take 80% percentile
             G=G_constraints,
             h=h_constraints,

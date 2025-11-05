@@ -68,6 +68,7 @@ class Perception:
         self.obstacles = obstacles
         self.conf_levels = confidence_config["levels"]
         self.percentiles = confidence_config["percentiles"]
+        self.calculate_grid_per_level = confidence_config["calculate_grid_per_level"]
 
         # estimate the lipschitz constants for the grid
         try:
@@ -77,10 +78,12 @@ class Perception:
         except:
             self.L_Lfh_grids, self.L_Lgh_grids = {}, {}
             for i, level in enumerate(self.conf_levels):
-                # v_max = confidence_config["vmax"][i]
-                v_max = (
-                    0.0  # -> does not depend on v, dont expand state space difference
-                )
+                if self.calculate_grid_per_level:
+                    v_max = confidence_config["vmax"][i]
+                else:
+                    # lipschitz does not depend on v, dont expand state space difference
+                    v_max = 0.0
+                
                 _min_values_state = np.array(
                     [min_values_state[0], min_values_state[1], -v_max, -v_max]
                 )
@@ -96,6 +99,10 @@ class Perception:
                 )
                 self.L_Lfh_grids[f"{level}"] = L_Lfh_grids
                 self.L_Lgh_grids[f"{level}"] = L_Lgh_grids
+
+                # break for loop if we need on
+                if not self.calculate_grid_per_level:
+                    break
 
         # plot the grid
         # self.plot_lipschitz_grids(
@@ -561,9 +568,15 @@ class Perception:
         L_Lfhs_save[0] = L_Lfhs_0.tolist()
         L_Lghs_save[0] = L_Lghs_0.tolist()
 
+        # for experiments 1 and 2 only calculate constants per level if it is needed
+        if not self.calculate_grid_per_level:
+            _conf_levels = [1]
+        else:
+            _conf_levels = self.conf_levels
+
         # experiment mode 1:
         # iterate over the confidence level and take max value -> percentile 100
-        for conf_level in self.conf_levels:
+        for conf_level in _conf_levels:
             L_Lfhs_1, L_Lghs_1 = self._lipschitz_constant_helper(conf_level, 100.0)
             L_Lfhs[1][conf_level] = L_Lfhs_1
             L_Lghs[1][conf_level] = L_Lghs_1
@@ -572,7 +585,7 @@ class Perception:
 
         # experiment mode 2:
         # iterate over the confidence level and percentile
-        for conf_level in self.conf_levels:
+        for conf_level in _conf_levels:
             conf_dict_L_Lfh, conf_dict_L_Lgh = {}, {}
             conf_dict_L_Lfh_save, conf_dict_L_Lgh_save = {}, {}
             for percentile in self.percentiles:
@@ -773,6 +786,10 @@ class Perception:
             # add dict to overall dict
             max_L_Lfh_diff[conf_level] = max_L_Lfh_diff_conf
             max_L_Lgh_diff[conf_level] = max_L_Lgh_conf
+
+            # break if we dont need to calculate a grid for each level
+            if not self.calculate_grid_per_level:
+                break
 
         # save the dictionaries
         max_L_Lfh_diff_save = copy.deepcopy(max_L_Lfh_diff)
