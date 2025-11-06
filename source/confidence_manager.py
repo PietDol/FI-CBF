@@ -5,7 +5,6 @@ from loguru import logger
 class ConfidenceManager:
     def __init__(self, confidence_config: dict):
         self.vmax_levels = confidence_config["vmax"]
-        self.k_levels = confidence_config["k"]
         self.sigma_thresholds = confidence_config["sigma_thresholds"]
         self.delta = confidence_config["deltas"]
         self.num_levels = len(self.vmax_levels)
@@ -26,10 +25,7 @@ class ConfidenceManager:
                 vmax = (1 - transition_value) * self.vmax_levels[
                     i + 1
                 ] + transition_value * self.vmax_levels[i]
-                k = (1 - transition_value) * self.k_levels[
-                    i + 1
-                ] + transition_value * self.k_levels[i]
                 # logger.debug(f"σ, T, v, k: {sigma}, {transition_value}, {vmax}, {k}")
-                return i + 1, vmax, k
+                return i + 1, vmax, 
         # beyond last threshold → return last level
-        return self.num_levels, self.vmax_levels[-1], self.k_levels[-1]
+        return self.num_levels, self.vmax_levels[-1]

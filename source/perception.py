@@ -10,6 +10,7 @@ from tqdm import tqdm
 import json
 import copy
 from obstacles import CircleObstacle, RectangleObstacle
+import functools
 
 
 class Sensor:
@@ -83,7 +84,7 @@ class Perception:
                 else:
                     # lipschitz does not depend on v, dont expand state space difference
                     v_max = 0.0
-                
+
                 _min_values_state = np.array(
                     [min_values_state[0], min_values_state[1], -v_max, -v_max]
                 )
@@ -257,6 +258,49 @@ class Perception:
             [sensor.get_sensor_magnitude(x_true) for sensor in self.sensors]
         )
         return np.sum(magnitudes)
+
+    def get_noise_upper_bound_in_ball(
+        self,
+        x_hat: np.ndarray,
+        *,
+        n_theta: int = 96,
+        n_rings: int = 4,
+        include_center: bool = True,
+        return_argmax: bool = False,
+    ):
+        # radius of the confidence ball (check units in your pipeline!)
+        eps_max = 3.0 * float(self.max_sensor_noise)
+
+        # one-time: move sensor arrays to device
+        if not hasattr(self, "_jax_centers"):
+            centers_np = np.stack(
+                [s.sensor_position for s in self.sensors], axis=0
+            ).astype(
+                np.float32
+            )  # (S,2)
+            dists_np = np.array(
+                [s.max_distance for s in self.sensors], dtype=np.float32
+            )  # (S,)
+            self._jax_centers = jnp.asarray(centers_np)
+            self._jax_dists = jnp.asarray(dists_np)
+
+        x_hat_xy = jnp.asarray(np.asarray(x_hat, dtype=np.float32)[:2])  # ensure (2,)
+
+        sigma_wc, arg_pt = _sigma_wc_ball_linspace(
+            x_hat_xy=x_hat_xy,
+            eps_max=float(eps_max),
+            n_theta=int(n_theta),
+            n_rings=int(n_rings),
+            include_center=bool(include_center),
+            centers=self._jax_centers,
+            dists=self._jax_dists,
+            min_sensor_noise=float(self.min_sensor_noise),
+            max_sensor_noise=float(self.max_sensor_noise),
+            magnitude_threshold=float(self.magnitude_threshold),
+        )
+        if return_argmax:
+            return float(sigma_wc), np.array(arg_pt, dtype=np.float32)
+        return float(sigma_wc)
 
     def get_perception_noise(self, x_true: np.ndarray):
         # returns the standard deviation for the noise
@@ -1129,3 +1173,52 @@ class Perception:
             )
             costmap = np.zeros(ij.shape[0])
         return np.array(costmap).reshape(rows, cols)
+
+
+def _rings_linspace(n_rings: int) -> jnp.ndarray:
+    if n_rings <= 0:
+        return jnp.array([1.0], dtype=jnp.float32)
+    return jnp.linspace(1.0 / n_rings, 1.0, n_rings, dtype=jnp.float32)
+
+def _build_ring_points_linspace(xy: jnp.ndarray,
+                                eps_max: float,
+                                n_theta: int,
+                                n_rings: int,
+                                include_center: bool) -> jnp.ndarray:
+    thetas = jnp.linspace(0.0, 2.0*jnp.pi, num=n_theta, endpoint=False, dtype=jnp.float32)
+    ct, st = jnp.cos(thetas), jnp.sin(thetas)       # (N,)
+    radii = _rings_linspace(n_rings)                # (J,)
+    rx = (eps_max * radii)[:, None]                 # (J,1)
+    ring_x = xy[0] + rx * ct[None, :]               # (J,N)
+    ring_y = xy[1] + rx * st[None, :]               # (J,N)
+    pts = jnp.stack([ring_x, ring_y], axis=-1).reshape(-1, 2)  # (J*N,2)
+    pts = jnp.vstack([pts, xy[None, :]])            # append center
+    if not include_center:                          # bool is static in jit wrapper
+        pts = pts[:-1, :]
+    return pts
+
+@functools.partial(jax.jit, static_argnames=("n_theta","n_rings","include_center"))
+def _sigma_wc_ball_linspace(x_hat_xy: jnp.ndarray,
+                            eps_max: float,
+                            n_theta: int,
+                            n_rings: int,
+                            include_center: bool,
+                            *,
+                            centers: jnp.ndarray,
+                            dists: jnp.ndarray,
+                            min_sensor_noise: float,
+                            max_sensor_noise: float,
+                            magnitude_threshold: float):
+    pts = _build_ring_points_linspace(x_hat_xy, eps_max, n_theta, n_rings, include_center)
+    # total magnitude: sum_j clip(1 - ||x - s_j|| / d_j, 0, 1)
+    diff = pts[:, None, :] - centers[None, :, :]
+    d = jnp.linalg.norm(diff, axis=-1)
+    mags = jnp.clip(1.0 - d / dists[None, :], 0.0, 1.0).sum(axis=1)
+    # worst case -> minimal magnitude
+    min_idx = jnp.argmin(mags)
+    min_mag = mags[min_idx]
+    # piecewise-linear magnitude->noise mapping
+    slope = (min_sensor_noise - max_sensor_noise) / magnitude_threshold
+    noise = max_sensor_noise + slope * min_mag
+    sigma_wc = jnp.where(min_mag > magnitude_threshold, min_sensor_noise, noise)
+    return sigma_wc, pts[min_idx]

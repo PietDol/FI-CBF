@@ -75,7 +75,7 @@ class Robot:
             # load_lipschitz_grid_path="./runs/experiment_cluttered_success/simulation_results/cluttered_experiment_0",
             # load_lipschitz_grid_path="./runs/gap_experiments_debug/simulation_results/gap_experiment_0_seed_7",
             # load_lipschitz_grid_path="./runs/experiments_debug/simulation_results/debug_experiment_3_seed_7",
-            # load_lipschitz_grid_path="./runs/gap_exp_new/simulation_results/gap_experiment_3_seed_7",
+            load_lipschitz_grid_path="./runs/gap_exp_new/simulation_results/robot_3/gap_experiment_3_seed_7",
         )
 
         # create cbf costmap
@@ -129,6 +129,7 @@ class Robot:
         self._cbf_switch_nominal_control_mag = cbf_switch_nominal_control_mag
         self._cbf_percentile = np.round(cbf_percentile, 1)  # round for dict key
         self._env_folder = env_folder
+        self._k = cbf_confidence_config["k"]
 
         # control parameters
         self._u_min_max = u_min_max
@@ -448,11 +449,11 @@ class Robot:
         # mechanism to prevent deadlocks be decreasing the percentile for the Lipschitz constants
         # return the percentile and the corresponding maximum velocity
         # for experiment 0 and 1 robust safety -> 100%
-        # for experiment 2 we decide to take 80% globally
+        # for experiment 2 we decide to take 90% globally
         if experiment_mode <= 1:
             return 100.0, self._percentile_velocity_dict["100.0"]
         elif experiment_mode == 2:
-            return 80.0, self._percentile_velocity_dict["80.0"]
+            return 90.0, self._percentile_velocity_dict["90.0"]
 
         # experiment mode 3
         # -------- one-time state init --------
@@ -578,10 +579,13 @@ class Robot:
 
         # get control input and apply the safety filter
         target_pos = self.get_intermediate_position()
-        noise = self.perception.get_perception_noise(self._true_state[2:])
+        noise_true = self.perception.get_perception_noise(x_true=self._true_state[:2])
+        noise = self.perception.get_noise_upper_bound_in_ball(x_hat=self._estimated_state[:2])
+        if noise_true > noise:
+            logger.debug(f"Optimistic noise used: {noise} ->  true noise {noise_true}")
 
         # implementation of confidence manager
-        conf_level, conf_velocity, k = self.confidence_manager.get_confidence_info(noise)
+        conf_level, conf_velocity = self.confidence_manager.get_confidence_info(noise)
 
         # get the cbf percentile
         cbf_percentile, percentile_velocity = self.get_cbf_percentile(
@@ -612,7 +616,7 @@ class Robot:
             experiment_mode=experiment_mode,
             noise=noise,
             u_nominal=u_nominal,
-            k=k,
+            k=self._k,
             reachable_set=reachable_set,
             confidence_level=_conf_level,
             percentile=cbf_percentile,  # for now we take 80% percentile
@@ -633,12 +637,6 @@ class Robot:
             )
         )
 
-        debug = False
-        if debug:
-            logger.debug(f"relaxation term: {t_qp}")
-            logger.debug(f"u_nom: {u_nominal} -> u_cbf: {u_cbf}")
-            logger.debug(f"L_Lfh: {L_Lfh}, L_Lgh: {L_Lgh}")
-
         # add all the data
         self.visualizer.data.Lfh_est.append(Lfh_est)
         self.visualizer.data.Lgh_est.append(Lgh_est)
@@ -653,20 +651,17 @@ class Robot:
         self.visualizer.data.u_nominal.append(u_nominal)
         self.visualizer.data.safety_margin.append(safety_margin)
         self.visualizer.data.noise.append(noise)
+        self.visualizer.data.noise_true.append(noise_true)
         self.visualizer.data.v_max.append(v_max)
-        self.visualizer.data.k.append(k)
+        self.visualizer.data.k.append(self._k)
         self.visualizer.data.conf_level.append(conf_level)
+        self.visualizer.data.percentile_level.append(cbf_percentile)
 
         # update the state of the system
         # self._true_state[2:] += u_cbf
         # self._true_state[:2] += self._true_state[2:] * self._control_dt
-        if debug:
-            logger.debug(f"before update: {self._true_state}")
-            logger.debug(f"addition: {u_cbf * self._control_dt}")
         self._true_state[:2] += u_cbf * self._control_dt
         self._true_state[2:] = u_cbf
-        if debug:
-            logger.debug(f"after update: {self._true_state}")
 
     def state_estimation_update(self):
         # method to get the state estimation of the robot

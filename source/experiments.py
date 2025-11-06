@@ -409,7 +409,7 @@ if __name__ == "__main__":
             "levels": [1, 2, 3],
             "calculate_grid_per_level": False,   # in our experiment the lipschitz does not depend on velocity
             "vmax": [3.0, 2.0, 1.0],
-            "k": [4.0, 3.0, 2.0],
+            "k": 3.0,
             "sigma_thresholds": [0.03, 0.07],
             "deltas": [
                 0.01,
@@ -439,9 +439,9 @@ if __name__ == "__main__":
 
     # for now only use fake experiment and experiment_mode 3 to set everything up
     # experiments = [fake_experiment, fabric_experiment, cluttered_experiment]
-    experiments = [debug_experiment]
+    experiments = [gaps_experiment]
     # safety_modes = [0, 1, 2, 3]
-    safety_modes = [3]
+    safety_modes = [0, 2, 3]
     # seeds = [7, 15, 22, 28, 33, 43]
     seeds = [7]
 

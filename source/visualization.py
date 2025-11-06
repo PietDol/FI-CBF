@@ -23,12 +23,14 @@ class VisualizationData:
         self.perception_magnitude_costmap = []
         self.noise_costmap = []
         self.noise = []
+        self.noise_true = []
         self.sensor_positions = []
         self.path = []
         self.control_time = []
         self.state_estimation_time = []
         self.k = []
         self.conf_level = []
+        self.percentile_level = []
         self.v_max = []
         self.Lfh_est = []
         self.Lgh_est = []
@@ -231,7 +233,9 @@ class VisualizeSimulation:
         # function to plot the noise over time
         t_control = self.data.control_time
         noise = self.data.noise
-        ax.plot(t_control, noise)
+        noise_true = self.data.noise_true
+        ax.plot(t_control, noise, label="Noise")
+        ax.plot(t_control, noise_true, label="True noise")
         ax.set_title(f"Noise over time")
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("Noise")
