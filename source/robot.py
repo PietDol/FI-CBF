@@ -75,7 +75,8 @@ class Robot:
             # load_lipschitz_grid_path="./runs/experiment_cluttered_success/simulation_results/cluttered_experiment_0",
             # load_lipschitz_grid_path="./runs/gap_experiments_debug/simulation_results/gap_experiment_0_seed_7",
             # load_lipschitz_grid_path="./runs/experiments_debug/simulation_results/debug_experiment_3_seed_7",
-            load_lipschitz_grid_path="./runs/gap_exp_new/simulation_results/robot_3/gap_experiment_3_seed_7",
+            # load_lipschitz_grid_path="./runs/gaps_exp/simulation_results/robot_0/gap_experiment_0_seed_7",
+            load_lipschitz_grid_path="./runs/exp_final_debug/simulation_results/gap_experiment_3_seed_7",
         )
 
         # create cbf costmap
@@ -429,6 +430,53 @@ class Robot:
 
         return np.array([[x_min, x_max], [y_min, y_max]]), G, h
 
+    def progress_metric(self, T: int = 50, eps: float = 1e-8) -> float:
+        """
+        Curvilinear progress along a fixed polyline path over the last T samples.
+        Returns a positive value when the robot advances along the path (arc-length).
+        
+        Args:
+        path_xy: (N,2) array, fixed path from start -> goal.
+        T:       window length (samples). Use the same T as in get_cbf_percentile.
+        eps:     small number to avoid divide-by-zero on degenerate segments.
+        """
+        # --- one-time cache of path geometry for speed ---
+        if not hasattr(self, "_pm_cached"):
+            path_xy = np.array(self._path)
+            assert isinstance(path_xy, np.ndarray) and path_xy.ndim == 2 and path_xy.shape[0] >= 2
+            # Segment starts p, ends q, vectors v, lengths, cumulative lengths
+            p = path_xy[:-1].astype(float)                     # (M,2)
+            q = path_xy[1:].astype(float)                      # (M,2)
+            v = q - p                                          # (M,2)
+            seg_len = np.linalg.norm(v, axis=1)                # (M,)
+            seg_len_safe = np.maximum(seg_len, eps)
+            cum_len = np.concatenate([[0.0], np.cumsum(seg_len)])  # (M+1,)
+            # Cache
+            self._pm_p = p
+            self._pm_v = v
+            self._pm_seg_len = seg_len
+            self._pm_seg_len_safe = seg_len_safe
+            self._pm_cum_len = cum_len
+            self._s_hist = deque(maxlen=T+1)
+            self._pm_cached = True
+
+        # --- compute arc-length coordinate s for current pose ---
+        x = np.asarray(self._estimated_state[:2], dtype=float)       # (2,)
+        w = x[None, :] - self._pm_p                                  # (M,2)
+        # t along each segment, clamped to [0,1]
+        t = np.sum(w * self._pm_v, axis=1) / (self._pm_seg_len_safe ** 2)   # (M,)
+        t = np.clip(t, 0.0, 1.0)
+        proj = self._pm_p + t[:, None] * self._pm_v                         # (M,2)
+        d2 = np.sum((proj - x[None, :]) ** 2, axis=1)                       # (M,)
+        i = int(np.argmin(d2))
+        s_now = self._pm_cum_len[i] + t[i] * self._pm_seg_len[i]            # scalar arc-length
+
+        # --- sliding-window progress (positive = forward along path) ---
+        self._s_hist.append(float(s_now))
+        if len(self._s_hist) == self._s_hist.maxlen:
+            return self._s_hist[-1] - self._s_hist[0], True
+        return 0.0, False
+
     def get_cbf_percentile(
         self,
         experiment_mode: int,
@@ -436,18 +484,21 @@ class Robot:
         # --- config (same defaults you posted) ---
         T: int = 50,  # samples in the window (~1 s @50Hz)
         HOLD: int = 50,  # min frames to stay RELAXED before exit
-        COOLDOWN: int = 50,  # min frames to stay NORMAL before re-enter
         ETA_ENTER: float = 0.02,  # m progress over T to ENTER RELAXED
         ETA_EXIT: float = 0.05,  # m progress over T to EXIT RELAXED
         H_ENTER: float = 0.02,  # m, near boundary to ENTER
         H_EXIT: float = 0.06,  # m, safely away to EXIT  (> H_ENTER)
         PCT_FLOOR: float = 60.0,
         PCT_STEP: float = 10.0,
-        RAMP_EVERY: int = 25,  # frames between ramp steps (~0.5 s)
-        RELAX_REEVAL_EVERY: int = 50,  # frames between further relax checks (~1 s)
     ):
         # mechanism to prevent deadlocks be decreasing the percentile for the Lipschitz constants
         # return the percentile and the corresponding maximum velocity
+        # set some other important parameters, for now they are simplified
+        # -> otherwise to much variables for experiments
+        COOLDOWN = HOLD # min frames to stay NORMAL before re-enter
+        RELAX_REEVAL_EVERY = HOLD   # frames between further relax checks 
+        RAMP_EVERY = HOLD   # frames between ramp steps (prev 25)
+
         # for experiment 0 and 1 robust safety -> 100%
         # for experiment 2 we decide to take 90% globally
         if experiment_mode <= 1:
@@ -456,21 +507,12 @@ class Robot:
             return 90.0, self._percentile_velocity_dict["90.0"]
 
         # experiment mode 3
-        # -------- one-time state init --------
-        if not hasattr(self, "_dist_hist"):
-            self._dist_hist = deque(maxlen=T + 1)
-        if not hasattr(self, "_h_hist"):
-            self._h_hist = deque(maxlen=T)
-
         # get last estimated h value and the distance to the goal
         first_run_done = True
         try:
-            h_now = float(
+            h_min = float(
                 np.min(self.visualizer.data.h_estimated[-1])
             ) 
-            dist_to_goal = float(
-                np.linalg.norm(self._estimated_state[:2] - self._goal_position)
-            )
         except:
             first_run_done = False
 
@@ -482,20 +524,10 @@ class Robot:
         self._cbf_percentile = self._cbf_percentile
 
         # -------- update rolling windows --------
-        self._dist_hist.append(float(dist_to_goal))
-        self._h_hist.append(float(h_now))
-
-        # Default values in case window not yet full
-        progress_window = 0.0
-        h_min = h_now
+        progress_window, warm_up_done = self.progress_metric(T=T)
 
         # -------- state machine only after warm-up --------
-        if len(self._dist_hist) == self._dist_hist.maxlen:
-            progress_window = (
-                self._dist_hist[0] - self._dist_hist[-1]
-            )  # POSITIVE = progress
-            h_min = min(self._h_hist) if len(self._h_hist) else 1e9
-
+        if warm_up_done:
             if self._cbf_state == "normal":
                 # Cooldown to avoid immediate re-entry into RELAXED
                 if self._normal_cooldown > 0:
@@ -542,8 +574,8 @@ class Robot:
 
         # -------- choose percentile for this tick --------
         if self._cbf_state == "normal":
-            # Gradually ramp toward nominal only when progress is healthy
-            if len(self._dist_hist) == self._dist_hist.maxlen:
+            # Gradually ramp toward nominal only when progress is warm up
+            if warm_up_done:
                 if (
                     progress_window >= ETA_EXIT
                     and self._active_percentile < self._cbf_percentile

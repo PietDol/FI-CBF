@@ -1016,8 +1016,8 @@ class Perception:
         # safety margin calculation based on the mrcbf paper
         L_alpha_h = 1.0
 
-        # 3 * noise is 99,7% confidence interval so 4 is closer to robust
-        epsilon = 4 * self.max_sensor_noise  # in the paper they use 0.4 for max noise
+        # 3 * noise is 99,7% confidence interval so use 3 to give it the best change
+        epsilon = 3 * self.max_sensor_noise  # in the paper they use 0.4 for max noise
         a = (self.L_Lfhs[0] + L_alpha_h) * epsilon
         b = self.L_Lghs[0] * epsilon
         safety_margin = a + b * jnp.linalg.norm(u_nominal)
