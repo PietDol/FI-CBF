@@ -499,12 +499,15 @@ class Robot:
         RELAX_REEVAL_EVERY = HOLD   # frames between further relax checks 
         RAMP_EVERY = HOLD   # frames between ramp steps (prev 25)
 
+        # -------- calculate the progress --------
+        progress_window, warm_up_done = self.progress_metric(T=T)
+
         # for experiment 0 and 1 robust safety -> 100%
         # for experiment 2 we decide to take 90% globally
         if experiment_mode <= 1:
-            return 100.0, self._percentile_velocity_dict["100.0"]
+            return 100.0, self._percentile_velocity_dict["100.0"], progress_window
         elif experiment_mode == 2:
-            return 90.0, self._percentile_velocity_dict["90.0"]
+            return 90.0, self._percentile_velocity_dict["90.0"], progress_window
 
         # experiment mode 3
         # get last estimated h value and the distance to the goal
@@ -518,13 +521,10 @@ class Robot:
 
         # if it crashes return 100.0 percentile and corresponding maximum velocity
         if not first_run_done:
-            return 100.0, self._percentile_velocity_dict["100.0"]
+            return 100.0, self._percentile_velocity_dict["100.0"], progress_window
 
         # Keep nominal up to date (confidence can change over time)
         self._cbf_percentile = self._cbf_percentile
-
-        # -------- update rolling windows --------
-        progress_window, warm_up_done = self.progress_metric(T=T)
 
         # -------- state machine only after warm-up --------
         if warm_up_done:
@@ -597,6 +597,7 @@ class Robot:
         return (
             cbf_percentile,
             self._percentile_velocity_dict[f"{np.round(self._active_percentile, 1)}"],
+            progress_window
         )
 
     #########################################################
@@ -620,7 +621,7 @@ class Robot:
         conf_level, conf_velocity = self.confidence_manager.get_confidence_info(noise)
 
         # get the cbf percentile
-        cbf_percentile, percentile_velocity = self.get_cbf_percentile(
+        cbf_percentile, percentile_velocity, progress = self.get_cbf_percentile(
             experiment_mode=experiment_mode, 
         )
 
@@ -688,6 +689,7 @@ class Robot:
         self.visualizer.data.k.append(self._k)
         self.visualizer.data.conf_level.append(conf_level)
         self.visualizer.data.percentile_level.append(cbf_percentile)
+        self.visualizer.data.progress.append(progress)
 
         # update the state of the system
         # self._true_state[2:] += u_cbf

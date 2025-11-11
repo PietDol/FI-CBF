@@ -31,6 +31,7 @@ class VisualizationData:
         self.k = []
         self.conf_level = []
         self.percentile_level = []
+        self.progress = []
         self.v_max = []
         self.Lfh_est = []
         self.Lgh_est = []
