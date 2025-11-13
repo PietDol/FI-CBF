@@ -1,6 +1,7 @@
-# FI-CBF
-Git repository for feedback-integrated Control Barrier Functions (FI-CBF).
+# Confidence-Adaptive Lipschitz-Managed Control Barrier Functions (CALM-CBFs)
+Git repository for Confidence-Adaptive Lipschitz-Managed Control Barrier Functions (CALM-CBFs).
 
+**Text below is outdated!**
 ## Code structure
 
 This section outlines the structure of the simulation code. The system is divided into two main components: the **Environment Manager** and the **Robot**.
