@@ -3,9 +3,14 @@ from planners import AStarPlanner, CBFInfusedAStar
 from cbf_costmap import CBFCostmap
 from robot_cbf_config import RobotCBFConfig
 from visualization import VisualizeSimulation
+from confidence_manager import ConfidenceManager
 from loguru import logger
 from cbfpy import CBF
 import numpy as np
+import jax
+import jax.numpy as jnp
+import time
+from collections import deque
 
 
 class Robot:
@@ -27,6 +32,8 @@ class Robot:
         cbf_switch_velocity_thres: float = None,
         cbf_switch_control_diff_thres: float = None,
         cbf_switch_nominal_control_mag: float = None,
+        cbf_confidence_config: dict = None,
+        cbf_percentile: float = None,
         noise_cost_gain: float = 0.0,
         goal_tolerance: float = 0.1,
         Kp: float = 0.5,
@@ -35,6 +42,7 @@ class Robot:
         initial_state: np.ndarray = np.zeros(4),
         sensors: list = None,
         obstacles: list = None,
+        env_folder: str = None,
     ):
         # this class represents the robot
         # create cbf object
@@ -43,18 +51,27 @@ class Robot:
         )
         self.cbf = CBF.from_config(self.cbf_config)
 
+        # create the confidence manager
+        self.confidence_manager = ConfidenceManager(cbf_confidence_config)
+
         # create perception module
         # we create the perception module with given sensors (not with random generation)
         self.perception = Perception(
             costmap_size=costmap_size,
             grid_size=grid_size,
             cbf=self.cbf,
+            obstacles=obstacles,
+            env_dir=env_folder,
+            confidence_config=cbf_confidence_config,
             min_values_state=min_values_state,
             max_values_state=max_values_state,
             min_sensor_noise=min_sensor_noise,
             max_sensor_noise=max_sensor_noise,
             magnitude_threshold=magnitude_threshold,
+            num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
+            # load_lipschitz_grid_path="./runs/exp_final_debug/simulation_results/gap_experiment_3_seed_7",   # gap env
+            load_lipschitz_grid_path="./runs/E1_overall_performance/cluttered_env/simulation_results/cluttered_experiment_0_seed_7",   # cluttered env
         )
 
         # create cbf costmap
@@ -106,7 +123,9 @@ class Robot:
         self._cbf_switch_velocity_thres = cbf_switch_velocity_thres
         self._cbf_switch_control_diff_thres = cbf_switch_control_diff_thres
         self._cbf_switch_nominal_control_mag = cbf_switch_nominal_control_mag
-        self._switch_active = False
+        self._cbf_percentile = np.round(cbf_percentile, 1)  # round for dict key
+        self._env_folder = env_folder
+        self._k = cbf_confidence_config["k"]
 
         # control parameters
         self._u_min_max = u_min_max
@@ -122,7 +141,33 @@ class Robot:
         self._t_estimation = 0.0
 
         # costmaps
+        self._work_domain = np.array(
+            [
+                [-costmap_size[0] / 2, costmap_size[0] / 2],  # x min max
+                [-costmap_size[1] / 2, costmap_size[1] / 2],  # y min max
+            ]
+        )
         self.costmaps = self.get_costmaps()
+
+        # cbf switch mechanism
+        self._prev_dist_to_goal = -1
+        self._timesteps_passed = 0
+        self._lower_conf_timesteps_passed = 0
+        self._normal_cooldown = 0
+        self._cbf_state = "normal"
+        self._relax_hold = 0
+        self._active_percentile = self._cbf_percentile
+        self._ramp_counter = 0
+        self._calculate_grid_per_level = cbf_confidence_config[
+            "calculate_grid_per_level"
+        ]
+        self._percentile_velocity_dict = {}
+        for i in range(len(cbf_confidence_config["percentiles"])):
+            self._percentile_velocity_dict[
+                f"{cbf_confidence_config['percentiles'][i]}"
+            ] = cbf_confidence_config["percentile_velocity"][i]
+        self._cbf_confidence_config = cbf_confidence_config
+        self._switch_count = 0
 
         # log
         logger.success("Robot created")
@@ -197,15 +242,16 @@ class Robot:
         else:
             return self._path[self._path_idx]
 
-    def pd_controller(self, target_pos: np.ndarray):
-        # TODO: maybe change controller? Check for jitter behavior
-        # subtract position and velocity from estimated state
+    def pd_controller(self, target_pos: np.ndarray, v_max: float = None):
+        # if v_max is given,
         position = self.estimated_state[:2]
         velocity = self.estimated_state[2:]
 
         error = target_pos - position
-        damping = -self._Kd * velocity  # Damping term to reduce overshoot
+        damping = -self._Kd * velocity
         u = self._Kp * error + damping
+
+        # clip based predefined min and max set by the user
         return np.clip(u, self._u_min_max[0], self._u_min_max[1])
 
     def check_goal_reached(self):
@@ -234,37 +280,330 @@ class Robot:
         self.visualizer.data.cbf_costmap = costmaps["cbf_costmap"]
         return costmaps
 
-    def activate_switch(self, u_nominal, u_cbf):
-        # method to check whether the switch should be active
-        if self._cbf_switch_control_diff_thres is None or self._cbf_switch_velocity_thres is None:
-            self._switch_active = False
-            return
+    # def calculate_safety_filter_constraints(
+    #     self,
+    #     v_max: float,
+    #     noise: float,
+    #     steps_ahead: float = 1.0,
+    #     # work_domain: np.ndarray = np.array([[-10, 10], [-10, 10]]),
+    # ):
+    #     # function to calculate the reachable set of the robot and the constraint matrices for the QP
+    #     # take 99.7% confidence interval (3 sigma around)
+    #     x_min = (
+    #         self._estimated_state[0]
+    #         - 3 * noise
+    #         - steps_ahead * v_max * self._control_dt
+    #     )
+    #     x_max = (
+    #         self._estimated_state[0]
+    #         + 3 * noise
+    #         + steps_ahead * v_max * self._control_dt
+    #     )
+    #     y_min = (
+    #         self._estimated_state[1]
+    #         - 3 * noise
+    #         - steps_ahead * v_max * self._control_dt
+    #     )
+    #     y_max = (
+    #         self._estimated_state[1]
+    #         + 3 * noise
+    #         + steps_ahead * v_max * self._control_dt
+    #     )
+
+    #     # make sure robot stays within the working env
+    #     x_min = max(self._work_domain[0, 0], x_min)
+    #     x_max = min(self._work_domain[0, 1], x_max)
+    #     y_min = max(self._work_domain[1, 0], y_min)
+    #     y_max = min(self._work_domain[1, 1], y_max)
+
+    #     # create the matrices for that: Gu <= h (https://github.com/kevin-tracy/qpax)
+    #     G = jnp.array(
+    #         [
+    #             # stay within working domain
+    #             [-steps_ahead * self._control_dt, 0],  # x_min
+    #             [steps_ahead * self._control_dt, 0],  # x_max
+    #             [0, -steps_ahead * self._control_dt],  # y_min
+    #             [0, steps_ahead * self._control_dt],  # y_max
+    #             # v < v_max
+    #             [-1, 0],  # > -v_max
+    #             [1, 0],  # < v_max
+    #             [0, -1],  # > -v_max
+    #             [0, 1],  # < v_max
+    #             # stay within reachable set
+    #             [-steps_ahead * self._control_dt, 0],  # x_min
+    #             [steps_ahead * self._control_dt, 0],  # x_max
+    #             [0, -steps_ahead * self._control_dt],  # y_min
+    #             [0, steps_ahead * self._control_dt],  # y_max
+    #         ]
+    #     )
+    #     h = jnp.array(
+    #         [
+    #             # stay within working domain
+    #             -self._work_domain[0, 0]
+    #             + self._estimated_state[0]
+    #             + steps_ahead * self._estimated_state[2] * self._control_dt,  # x_min
+    #             self._work_domain[0, 1]
+    #             - self._estimated_state[0]
+    #             - steps_ahead * self._estimated_state[2] * self._control_dt,  # x_max
+    #             -self._work_domain[1, 0]
+    #             + self._estimated_state[1]
+    #             + steps_ahead * self._estimated_state[3] * self._control_dt,  # y_min
+    #             self._work_domain[1, 1]
+    #             - self._estimated_state[1]
+    #             - steps_ahead * self._estimated_state[3] * self._control_dt,  # y_max
+    #             # v < v_max
+    #             v_max + self._estimated_state[2],  # > -v_max
+    #             v_max - self._estimated_state[2],  # < v_max
+    #             v_max + self._estimated_state[3],  # > -v_max
+    #             v_max - self._estimated_state[3],  # < v_max
+    #             # stay within reachable set
+    #             steps_ahead * (v_max + self._estimated_state[2]) * self._control_dt
+    #             + 3 * noise,  # x_min
+    #             steps_ahead * (v_max - self._estimated_state[2]) * self._control_dt
+    #             + 3 * noise,  # x_max
+    #             steps_ahead * (v_max + self._estimated_state[3]) * self._control_dt
+    #             + 3 * noise,  # y_min
+    #             steps_ahead * (v_max - self._estimated_state[3]) * self._control_dt
+    #             + 3 * noise,  # y_max
+    #         ]
+    #     )
+    #     return np.array([[x_min, x_max], [y_min, y_max]]), G, h
+
+    def calculate_safety_filter_constraints(
+        self,
+        v_max: float,
+        noise: float,
+        steps_ahead: float = 1.0,
+    ):
+        dt = self._control_dt * steps_ahead
+        x_hat = self._estimated_state[0]
+        y_hat = self._estimated_state[1]
+
+        pad = 3.0 * noise + steps_ahead * v_max * dt
+        x_min = x_hat - pad
+        x_max = x_hat + pad
+        y_min = y_hat - pad
+        y_max = y_hat + pad
+
+        # extra work-domain rows
+        xwd_min, xwd_max = self._work_domain[0]
+        ywd_min, ywd_max = self._work_domain[1]
+
+        G = jnp.vstack(
+            [
+                # work-domain
+                [-dt, 0],
+                [dt, 0],
+                [0, -dt],
+                [0, dt],
+                # |u| <= v_max
+                [-1, 0],
+                [1, 0],
+                [0, -1],
+                [0, 1],
+                # reachable set
+                [-dt, 0],
+                [dt, 0],
+                [0, -dt],
+                [0, dt],
+            ]
+        )
+        h = jnp.hstack(
+            [
+                x_hat - xwd_min,
+                xwd_max - x_hat,
+                y_hat - ywd_min,
+                ywd_max - y_hat,
+                v_max,
+                v_max,
+                v_max,
+                v_max,
+                x_hat - x_min,
+                x_max - x_hat,
+                y_hat - y_min,
+                y_max - y_hat,
+            ]
+        )
+
+        return np.array([[x_min, x_max], [y_min, y_max]]), G, h
+
+    def progress_metric(self, T: int = 50, eps: float = 1e-8) -> float:
+        """
+        Curvilinear progress along a fixed polyline path over the last T samples.
+        Returns a positive value when the robot advances along the path (arc-length).
         
-        if self._switch_active and (
-            np.all(np.abs(u_nominal - u_cbf) <= self._cbf_switch_control_diff_thres)
-            and np.all(self._estimated_state[2:] >= self._cbf_switch_velocity_thres)
-        ):
-            # condition to set deactivate the switch
-            logger.debug("Switch deactivated")
-            self._switch_active = False
+        Args:
+        path_xy: (N,2) array, fixed path from start -> goal.
+        T:       window length (samples). Use the same T as in get_cbf_percentile.
+        eps:     small number to avoid divide-by-zero on degenerate segments.
+        """
+        # --- one-time cache of path geometry for speed ---
+        if not hasattr(self, "_pm_cached"):
+            path_xy = np.array(self._path)
+            assert isinstance(path_xy, np.ndarray) and path_xy.ndim == 2 and path_xy.shape[0] >= 2
+            # Segment starts p, ends q, vectors v, lengths, cumulative lengths
+            p = path_xy[:-1].astype(float)                     # (M,2)
+            q = path_xy[1:].astype(float)                      # (M,2)
+            v = q - p                                          # (M,2)
+            seg_len = np.linalg.norm(v, axis=1)                # (M,)
+            seg_len_safe = np.maximum(seg_len, eps)
+            cum_len = np.concatenate([[0.0], np.cumsum(seg_len)])  # (M+1,)
+            # Cache
+            self._pm_p = p
+            self._pm_v = v
+            self._pm_seg_len = seg_len
+            self._pm_seg_len_safe = seg_len_safe
+            self._pm_cum_len = cum_len
+            self._s_hist = deque(maxlen=T+1)
+            self._pm_cached = True
 
-            # add time to the visualizer
-            self.visualizer.data.cbf_switch_deactive.append(self._t_control)
-        elif not self._switch_active and (
-            np.all(np.abs(u_nominal - u_cbf) > self._cbf_switch_control_diff_thres)
-            and np.all(self._estimated_state[2:] < self._cbf_switch_velocity_thres)
-        ):
-            logger.debug("Switch activated")
-            # condition to activate the switch
-            self._switch_active = True
+        # --- compute arc-length coordinate s for current pose ---
+        x = np.asarray(self._estimated_state[:2], dtype=float)       # (2,)
+        w = x[None, :] - self._pm_p                                  # (M,2)
+        # t along each segment, clamped to [0,1]
+        t = np.sum(w * self._pm_v, axis=1) / (self._pm_seg_len_safe ** 2)   # (M,)
+        t = np.clip(t, 0.0, 1.0)
+        proj = self._pm_p + t[:, None] * self._pm_v                         # (M,2)
+        d2 = np.sum((proj - x[None, :]) ** 2, axis=1)                       # (M,)
+        i = int(np.argmin(d2))
+        s_now = self._pm_cum_len[i] + t[i] * self._pm_seg_len[i]            # scalar arc-length
 
-            # add time to the visualizer
-            self.visualizer.data.cbf_switch_active.append(self._t_control)
+        # --- sliding-window progress (positive = forward along path) ---
+        self._s_hist.append(float(s_now))
+        if len(self._s_hist) == self._s_hist.maxlen:
+            return self._s_hist[-1] - self._s_hist[0], True
+        return 0.0, False
+
+    def get_cbf_percentile(
+        self,
+        experiment_mode: int,
+        *,
+        # --- config (same defaults you posted) ---
+        T: int = 50,  # samples in the window (~1 s @50Hz)
+        HOLD: int = 50,  # min frames to stay RELAXED before exit
+        ETA_ENTER: float = 0.02,  # m progress over T to ENTER RELAXED
+        ETA_EXIT: float = 0.05,  # m progress over T to EXIT RELAXED
+        H_ENTER: float = 0.02,  # m, near boundary to ENTER
+        H_EXIT: float = 0.06,  # m, safely away to EXIT  (> H_ENTER)
+        PCT_FLOOR: float = 60.0,
+        PCT_STEP: float = 10.0,
+    ):
+        # mechanism to prevent deadlocks be decreasing the percentile for the Lipschitz constants
+        # return the percentile and the corresponding maximum velocity
+        # set some other important parameters, for now they are simplified
+        # -> otherwise to much variables for experiments
+        COOLDOWN = HOLD # min frames to stay NORMAL before re-enter
+        RELAX_REEVAL_EVERY = HOLD   # frames between further relax checks 
+        RAMP_EVERY = HOLD   # frames between ramp steps (prev 25)
+
+        # -------- calculate the progress --------
+        progress_window, warm_up_done = self.progress_metric(T=T)
+
+        # for experiment 0 and 1 robust safety -> 100%
+        # for experiment 2 we decide to take 90% globally
+        if experiment_mode <= 1:
+            return 100.0, self._percentile_velocity_dict["100.0"], progress_window
+        elif experiment_mode == 2:
+            return 90.0, self._percentile_velocity_dict["90.0"], progress_window
+
+        # experiment mode 3
+        # get last estimated h value and the distance to the goal
+        first_run_done = True
+        try:
+            h_min = float(
+                np.min(self.visualizer.data.h_estimated[-1])
+            ) 
+        except:
+            first_run_done = False
+
+        # if it crashes return 100.0 percentile and corresponding maximum velocity
+        if not first_run_done:
+            return 100.0, self._percentile_velocity_dict["100.0"], progress_window
+
+        # Keep nominal up to date (confidence can change over time)
+        self._cbf_percentile = self._cbf_percentile
+
+        # -------- state machine only after warm-up --------
+        if warm_up_done:
+            if self._cbf_state == "normal":
+                # Cooldown to avoid immediate re-entry into RELAXED
+                if self._normal_cooldown > 0:
+                    self._normal_cooldown -= 1
+                else:
+                    # Enter RELAXED if little progress and hugging the boundary
+                    enter = (progress_window < ETA_ENTER) and (h_min < H_ENTER)
+                    if enter:
+                        self._cbf_state = "relaxed"
+                        self._relax_hold = 0
+                        # Step down once on entry (or keep it low if already below)
+                        self._active_percentile = max(
+                            self._active_percentile - PCT_STEP, PCT_FLOOR
+                        )
+                        self._ramp_counter = 0
+                        self._switch_count += 1
+                        logger.debug(
+                            f"Switch to relaxed mode ({self._switch_count}) @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                        )
+
+            else:  # RELAXED
+                self._relax_hold += 1
+
+                # Consider further relaxation every RELAX_REEVAL_EVERY frames
+                still_stuck = (progress_window < ETA_ENTER) and (h_min < H_ENTER)
+                time_to_reeval = (self._relax_hold % RELAX_REEVAL_EVERY) == 0
+                can_step_down = (self._active_percentile - PCT_STEP) >= PCT_FLOOR
+                if time_to_reeval and still_stuck and can_step_down:
+                    self._active_percentile = max(
+                        self._active_percentile - PCT_STEP, PCT_FLOOR
+                    )
+                    self._switch_count += 1
+                    logger.debug(
+                        f"Further relax ({self._switch_count}) @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                    )
+
+                # Exit when held long enough AND we’re away from the boundary AND making progress
+                exit_ok = (h_min > H_EXIT) and (progress_window >= ETA_EXIT)
+                if (self._relax_hold >= HOLD) and exit_ok:
+                    self._cbf_state = "normal"
+                    self._normal_cooldown = COOLDOWN
+                    # Do NOT snap percentile back; ramp in NORMAL
+                    logger.debug(
+                        f"Switch to normal mode @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                    )
+
+        # -------- choose percentile for this tick --------
+        if self._cbf_state == "normal":
+            # Gradually ramp toward nominal only when progress is warm up
+            if warm_up_done:
+                if (
+                    progress_window >= ETA_EXIT
+                    and self._active_percentile < self._cbf_percentile
+                ):
+                    self._ramp_counter += 1
+                    if self._ramp_counter >= RAMP_EVERY:
+                        self._active_percentile = min(
+                            self._active_percentile + PCT_STEP, self._cbf_percentile
+                        )
+                        self._ramp_counter = 0
+                        self._switch_count += 1
+                        logger.debug(
+                            f"Ramp up percentile ({self._switch_count}) @ t={self._t_control:.2f}: -> {self._active_percentile}"
+                        )
+
+            cbf_percentile = self._active_percentile
+        else:
+            cbf_percentile = self._active_percentile  # low value while RELAXED
+
+        return (
+            cbf_percentile,
+            self._percentile_velocity_dict[f"{np.round(self._active_percentile, 1)}"],
+            progress_window
+        )
 
     #########################################################
     # MAIN METHODS
     #########################################################
-    def control_update(self):
+    def control_update(self, experiment_mode: int):
         # method to apply the control input to the system
         # check if there is a path
         if self._path is None:
@@ -273,52 +612,96 @@ class Robot:
 
         # get control input and apply the safety filter
         target_pos = self.get_intermediate_position()
-        u_nominal = self.pd_controller(target_pos)
-        noise = self.perception.get_perception_noise(self._true_state[2:])
-        if self._switch_active and self._cbf_switch_nominal_control_mag is not None:
-            u_nominal = np.clip(
-                u_nominal,
-                -self._cbf_switch_nominal_control_mag,
-                self._cbf_switch_nominal_control_mag,
-            )
-            safety_margin = self.perception.calculate_safety_margin(
-                noise=noise, u_nominal=u_nominal, mode="probabilistic"
-            )
-        elif (
-            not self._switch_active and self._cbf_switch_nominal_control_mag is not None
-        ):
-            safety_margin = self.perception.calculate_safety_margin(
-                noise=noise, u_nominal=u_nominal, mode="robust"
-            )
+        noise_true = self.perception.get_perception_noise(x_true=self._true_state[:2])
+        noise = self.perception.get_noise_upper_bound_in_ball(x_hat=self._estimated_state[:2])
+        if noise_true > noise:
+            logger.debug(f"Optimistic noise used: {noise} ->  true noise {noise_true}")
+
+        # implementation of confidence manager
+        conf_level, conf_velocity = self.confidence_manager.get_confidence_info(noise)
+
+        # get the cbf percentile
+        cbf_percentile, percentile_velocity, progress = self.get_cbf_percentile(
+            experiment_mode=experiment_mode,
+            T=self._cbf_confidence_config["T"],
+            HOLD=self._cbf_confidence_config["T_hold"],  
+            ETA_ENTER=self._cbf_confidence_config["eta_rel"],  
+            ETA_EXIT=self._cbf_confidence_config["eta_up"], 
+            H_ENTER=self._cbf_confidence_config["h_rel"],
+            H_EXIT=self._cbf_confidence_config["h_up"],
+        )
+
+        # set the maximum velocity as the minimum of the two mechanism
+        v_max = min(conf_velocity, percentile_velocity)
+
+        # set confidence level to use for Lipschitz grid
+        if self._calculate_grid_per_level:
+            _conf_level = conf_level
         else:
-            safety_margin = self.perception.calculate_safety_margin(
-                noise=noise, u_nominal=u_nominal, mode=self._cbf_state_uncertainty_mode
-            )
-        u_cbf = self.cbf.safety_filter(self._estimated_state, u_nominal, safety_margin)
+            _conf_level = 1
 
-        # check whether to activate the switch
-        self.activate_switch(u_nominal, u_cbf)
-
-        # add data to visualizer
-        h_true = self.cbf_config.alpha(
-            self.cbf_config.h_1(
-                self._true_state, np.zeros(self.cbf_config.num_obstacles)
+        # calculate the reachable set
+        reachable_set, G_constraints, h_constraints = (
+            self.calculate_safety_filter_constraints(
+                v_max=v_max, noise=noise, steps_ahead=2.0
             )
         )
+
+        # calculate the nominal control
+        u_nominal = self.pd_controller(target_pos, v_max)
+
+        # calculate the safety margins based on the experiment mode
+        safety_margin, L_Lfh, L_Lgh, G, h = self.perception.calculate_safety_margin(
+            experiment_mode=experiment_mode,
+            noise=noise,
+            u_nominal=u_nominal,
+            k=self._k,
+            reachable_set=reachable_set,
+            confidence_level=_conf_level,
+            percentile=cbf_percentile,  # for now we take 80% percentile
+            G=G_constraints,
+            h=h_constraints,
+        )
+
+        # apply safety filter to the control input
+        # new version
+        u_cbf, h_est, h_true, Lfh_est, Lfh_true, Lgh_est, Lgh_true, t_qp = (
+            self.cbf.safety_filter(
+                self._estimated_state,
+                u_nominal,
+                safety_margin,
+                self._true_state,
+                G,
+                h,
+            )
+        )
+
+        # add all the data
+        self.visualizer.data.Lfh_est.append(Lfh_est)
+        self.visualizer.data.Lgh_est.append(Lgh_est)
+        self.visualizer.data.Lfh_true.append(Lfh_true)
+        self.visualizer.data.Lgh_true.append(Lgh_true)
+        self.visualizer.data.L_Lfh.append(L_Lfh)
+        self.visualizer.data.L_Lgh.append(L_Lgh)
+        self.visualizer.data.t_qp.append(np.amax(np.array(t_qp)))
         self.visualizer.data.h_true.append(np.array(h_true))
-        h_estimated = self.cbf_config.alpha(
-            self.cbf_config.h_1(self._estimated_state, safety_margin)
-        )
-        self.visualizer.data.h_estimated.append(np.array(h_estimated))
-        # self.visualizer.data.robot_pos.append(self._true_state[:2])
-        # self.visualizer.data.robot_vel.append(self._true_state[2:])
+        self.visualizer.data.h_estimated.append(np.array(h_est))
         self.visualizer.data.u_cbf.append(u_cbf)
         self.visualizer.data.u_nominal.append(u_nominal)
         self.visualizer.data.safety_margin.append(safety_margin)
+        self.visualizer.data.noise.append(noise)
+        self.visualizer.data.noise_true.append(noise_true)
+        self.visualizer.data.v_max.append(v_max)
+        self.visualizer.data.k.append(self._k)
+        self.visualizer.data.conf_level.append(conf_level)
+        self.visualizer.data.percentile_level.append(cbf_percentile)
+        self.visualizer.data.progress.append(progress)
 
         # update the state of the system
-        self._true_state[2:] += u_cbf
-        self._true_state[:2] += self._true_state[2:] * self._control_dt
+        # self._true_state[2:] += u_cbf
+        # self._true_state[:2] += self._true_state[2:] * self._control_dt
+        self._true_state[:2] += u_cbf * self._control_dt
+        self._true_state[2:] = u_cbf
 
     def state_estimation_update(self):
         # method to get the state estimation of the robot
@@ -332,7 +715,7 @@ class Robot:
         self.visualizer.data.robot_pos.append(self._true_state[:2].copy())
         self.visualizer.data.robot_vel.append(self._true_state[2:].copy())
 
-    def run_simulation(self, sim_time: float, env_folder: str):
+    def run_simulation(self, sim_time: float, env_folder: str, experiment_mode: int):
         if self.path is None:
             return None
         self._t_control = 0.0
@@ -342,10 +725,11 @@ class Robot:
 
         # apply the loop
         # in general: if both are in the same loop -> first estimation then apply control
+        logger.info("Simulation started...")
         while t < sim_time and not self.check_goal_reached():
             # check order
             if self._t_control < self._t_estimation and t >= self._t_control:
-                self.control_update()
+                self.control_update(experiment_mode)
                 self._t_control += self._control_dt
 
             # check if estimation needs to be updated
@@ -355,7 +739,7 @@ class Robot:
 
             # check if control needs to be updated
             if t >= self._t_control:
-                self.control_update()
+                self.control_update(experiment_mode)
                 self._t_control += self._control_dt
 
             # check for collision
@@ -389,9 +773,15 @@ class Robot:
             logger.success(f"Goal reached in {t} seconds")
             return True
         else:
-            logger.warning(f"Goal not reached after {t} seconds")
+            distance = np.linalg.norm(self._goal_position - self._true_state[:2])
+            logger.warning(
+                f"Goal not reached after {t} seconds. Distance to goal: {distance} m"
+            )
             return False
 
     def plot(self, filename: str):
-        # create the plot
+        # create the plots
         self.visualizer.create_full_plot(planner=self.planner, filename=filename)
+        self.visualizer.plot_lipschitz(
+            f"{self._env_folder}/lipschitz_constants_time.png"
+        )

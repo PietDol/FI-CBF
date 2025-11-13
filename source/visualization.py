@@ -3,6 +3,9 @@ import numpy as np
 from loguru import logger
 import os
 import jax.numpy as jnp
+from jax.core import Tracer
+import jax
+import pandas as pd
 
 
 class VisualizationData:
@@ -19,13 +22,38 @@ class VisualizationData:
         self.cbf_costmap = []
         self.perception_magnitude_costmap = []
         self.noise_costmap = []
+        self.noise = []
+        self.noise_true = []
         self.sensor_positions = []
         self.path = []
-        self.cbf_switch_active = []
-        self.cbf_switch_deactive = []
         self.control_time = []
         self.state_estimation_time = []
+        self.k = []
+        self.conf_level = []
+        self.percentile_level = []
+        self.progress = []
+        self.v_max = []
+        self.Lfh_est = []
+        self.Lgh_est = []
+        self.Lfh_true = []
+        self.Lgh_true = []
+        self.L_Lfh = []
+        self.L_Lgh = []
+        self.t_qp = []
         self.converted_to_numpy = False
+
+    @classmethod
+    def from_directory(cls, dir_path):
+        instance = cls()
+        for attr in instance.__dict__:
+            file_path = os.path.join(dir_path, f"simulation_data/{attr}.npy")
+            if os.path.isfile(file_path):
+                setattr(instance, attr, np.load(file_path, allow_pickle=True))
+            elif not os.path.isfile(file_path) and attr != "converted_to_numpy":
+                logger.warning(f"No data for {attr}")
+        instance.converted_to_numpy = True
+        logger.success(f"Visualization data loaded from {dir_path}/simulation_data")
+        return instance
 
     def to_numpy(self):
         if not self.converted_to_numpy:
@@ -34,6 +62,89 @@ class VisualizationData:
                     setattr(self, attr, np.array(value))
 
             self.converted_to_numpy = True
+
+    def to_pandas(self, experiment=None, robot=None, seed=None):
+        # convert to pandas dataframe, metadata can be added for the experiments
+        if not self.converted_to_numpy:
+            self.to_numpy()
+
+        # variables to skip (big 2D grids or not aligned with control time)
+        variables_to_skip = {
+            "robot_pos_estimated",
+            "state_estimation_time",
+            "planner_costmap",
+            "cbf_costmap",
+            "perception_magnitude_costmap",
+            "noise_costmap",
+            "sensor_positions",
+            "path",
+            "converted_to_numpy",
+        }
+
+        # base dataframe with time
+        n = len(self.control_time)
+        df = pd.DataFrame({"time": self.control_time})
+
+        # add metadata if provided
+        if experiment is not None:
+            df["experiment"] = experiment
+        if robot is not None:
+            df["robot"] = robot
+        if seed is not None:
+            df["seed"] = seed
+
+        batch_frames = []  # collect per-attribute DataFrames here
+        for attr, value in self.__dict__.items():
+            if (
+                attr in variables_to_skip
+                or not isinstance(value, np.ndarray)
+                or len(value) == 0
+            ):
+                continue
+
+            # 1D arrays aligned with time
+            if value.ndim == 1:
+                if len(value) == n:
+                    batch_frames.append(pd.DataFrame({attr: value}))
+                else:
+                    logger.error(f"{attr} not the same size: {len(value)} != {n}")
+
+            # 2D arrays (e.g., u_cbf, u_nominal, h_true with multiple obstacles)
+            elif value.ndim == 2:
+                if value.shape[0] == n:
+                    cols = [f"{attr}_{i}" for i in range(value.shape[1])]
+                    batch_frames.append(pd.DataFrame(value, columns=cols))
+                else:
+                    logger.error(f"{attr} not the same size: {len(value)} != {n}")
+
+        # Concatenate once to avoid fragmentation
+        if batch_frames:
+            df = pd.concat([df] + batch_frames, axis=1, copy=False)
+
+        # # iterate over attributes
+        # for attr, value in self.__dict__.items():
+        #     if attr in variables_to_skip:
+        #         continue
+        #     if not isinstance(value, np.ndarray):
+        #         continue
+        #     if len(value) == 0:
+        #         continue
+
+        #     # handle 1D arrays
+        #     if value.ndim == 1:
+        #         if len(value) == n:  # only include if same length as control_time
+        #             df[attr] = value
+        #         else:
+        #             logger.error(f"{attr} not the same size: {len(value)} != {n}")
+        #     # handle 2D arrays (e.g. u_cbf, u_nominal, h_true with multiple obstacles)
+        #     elif value.ndim == 2:
+        #         if value.shape[0] == n:
+        #             for i in range(value.shape[1]):
+        #                 df[f"{attr}_{i}"] = value[:, i]
+        #         else:
+        #             logger.error(f"{attr} not the same size: {len(value)} != {n}")
+
+        return df
 
     def save_data(self, dir):
         # function to save all the data to npy files
@@ -64,6 +175,9 @@ class VisualizeSimulation:
         # clear the data dictionary
         self.data = VisualizationData()
 
+    #######################################################################
+    # Row 1
+    #######################################################################
     def plot_state(self, axes):
         # this function converts the axes to plots for the state
         t_estimate = self.data.state_estimation_time
@@ -83,23 +197,7 @@ class VisualizeSimulation:
 
         for i in range(robot_vel.shape[1]):
             idx = i + dim_pos
-            y_min = np.min(robot_vel[:, i])
-            y_max = np.max(robot_vel[:, i])
             axes[idx].plot(t_estimate, robot_vel[:, i], label="Velocity")
-            axes[idx].vlines(
-                self.data.cbf_switch_active,
-                y_min,
-                y_max,
-                color="g",
-                label="Switch activated",
-            )
-            axes[idx].vlines(
-                self.data.cbf_switch_deactive,
-                y_min,
-                y_max,
-                color="r",
-                label="Switch deactivated",
-            )
             axes[idx].set_title(f"Velocity over time (axes={i})")
             axes[idx].set_xlabel("Time [s]")
             axes[idx].set_ylabel("Velocity [m/s]")
@@ -108,6 +206,9 @@ class VisualizeSimulation:
 
         return axes
 
+    #######################################################################
+    # Row 2
+    #######################################################################
     def plot_control_input(self, axes):
         # this function converts a list of axes to a list of figures with the control inputs over time
         u_nominal = self.data.u_nominal
@@ -117,24 +218,8 @@ class VisualizeSimulation:
 
         # Plot the data for controller
         for i in range(dim_controller):
-            y_min = min([np.min(u_cbf[:, i]), np.max(u_nominal[:, i])])
-            y_max = max([np.max(u_cbf[:, i]), np.max(u_nominal[:, i])])
             axes[i].plot(t_control, u_cbf[:, i], label=f"u cbf {i}")
             axes[i].plot(t_control, u_nominal[:, i], label=f"u nominal {i}")
-            axes[i].vlines(
-                self.data.cbf_switch_active,
-                y_min,
-                y_max,
-                color="g",
-                label="Switch activated",
-            )
-            axes[i].vlines(
-                self.data.cbf_switch_deactive,
-                y_min,
-                y_max,
-                color="r",
-                label="Switch deactivated",
-            )
 
             # Customize the plot
             axes[i].set_title("Control input over time")
@@ -145,28 +230,49 @@ class VisualizeSimulation:
 
         return axes  # Return the modified axis
 
+    def plot_noise(self, ax):
+        # function to plot the noise over time
+        t_control = self.data.control_time
+        noise = self.data.noise
+        noise_true = self.data.noise_true
+        ax.plot(t_control, noise, label="Noise")
+        ax.plot(t_control, noise_true, label="True noise")
+        ax.set_title(f"Noise over time")
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel("Noise")
+        ax.grid(True)
+        return ax
+
+    def plot_k(self, ax):
+        # function to plot the k over time
+        t_control = self.data.control_time
+        k = self.data.k
+        ax.plot(t_control, k)
+        ax.set_ylim(0.0, max(k) + 0.5)
+        ax.set_title(f"k over time")
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel("k [-]")
+        ax.grid(True)
+        return ax
+
+    def plot_v_max(self, ax):
+        # function to plot the v_max over time
+        t_control = self.data.control_time
+        v_max = self.data.v_max
+        ax.plot(t_control, v_max)
+        ax.set_ylim(0.0, max(v_max) + 0.5)
+        ax.set_title(f"v_max over time")
+        ax.set_xlabel("Time [s]")
+        ax.set_ylabel("v_max [m/s]")
+        ax.grid(True)
+        return ax
+
     def plot_safety_margin(self, ax):
         # function to plot the safety margin over time
         t_control = self.data.control_time
         safety_margins = self.data.safety_margin
-        y_min = np.min(safety_margins)
-        y_max = np.max(safety_margins)
         labels = [f"CBF {i}" for i in range(safety_margins.shape[1])]
         ax.plot(t_control, safety_margins, label=labels)
-        ax.vlines(
-            self.data.cbf_switch_active,
-            y_min,
-            y_max,
-            color="g",
-            label="Switch activated",
-        )
-        ax.vlines(
-            self.data.cbf_switch_deactive,
-            y_min,
-            y_max,
-            color="r",
-            label="Switch deactivated",
-        )
         ax.set_title(f"Safety margin over time")
         ax.set_xlabel("Time [s]")
         ax.set_ylabel("Safety margin")
@@ -174,6 +280,9 @@ class VisualizeSimulation:
         ax.grid(True)
         return ax
 
+    #######################################################################
+    # Row 3
+    #######################################################################
     def plot_cbf(self, axes):
         # converts a list of axes to figures with the value of the cbf over time
         h_true = self.data.h_true
@@ -183,24 +292,8 @@ class VisualizeSimulation:
 
         # Plot each CBF separately
         for i in range(num_cbfs):
-            y_min = min([np.min(h_estimated[:, i]), np.min(h_true[:, i])])
-            y_max = max([np.max(h_estimated[:, i]), np.max(h_true[:, i])])
             axes[i].plot(t_control, h_estimated[:, i], label=f"estimated cbf {i}")
             axes[i].plot(t_control, h_true[:, i], label=f"true cbf {i}")
-            axes[i].vlines(
-                self.data.cbf_switch_active,
-                y_min,
-                y_max,
-                color="g",
-                label="Switch activated",
-            )
-            axes[i].vlines(
-                self.data.cbf_switch_deactive,
-                y_min,
-                y_max,
-                color="r",
-                label="Switch deactivated",
-            )
             axes[i].set_title(f"CBF {i} over time")
             axes[i].set_xlabel("Time [s]")
             axes[i].set_ylabel("h")
@@ -209,6 +302,9 @@ class VisualizeSimulation:
 
         return axes  # Return the modified axes
 
+    #######################################################################
+    # Row 3
+    #######################################################################
     def plot_distance_costmap(self, ax, planner):
         # get all the data
         costmap = planner.costmap
@@ -444,6 +540,62 @@ class VisualizeSimulation:
 
         return ax
 
+    #######################################################################
+    # Plot functions
+    #######################################################################
+    def plot_lipschitz(self, filename):
+        # take all the important information from the data
+        num_barriers = self.data.L_Lfh.shape[1]
+        t_control = self.data.control_time
+        true_pos = self.data.robot_pos
+        estimated_pos = self.data.robot_pos_estimated
+        Lfh_true = self.data.Lfh_true
+        Lfh_est = self.data.Lfh_est
+        Lgh_true = self.data.Lgh_true
+        Lgh_est = self.data.Lgh_est
+        L_Lfh_est = self.data.L_Lfh
+        L_Lgh_est = self.data.L_Lgh
+        u_cbf = self.data.u_cbf
+
+        # compute empirical L_Lfh
+        epsilon = 1e-6  # prevent division by zero
+        delta_pos = np.linalg.norm(true_pos - estimated_pos, axis=1) + epsilon
+        empirical_L_Lfh = np.abs(Lfh_true - Lfh_est) / delta_pos[:, None]
+
+        # compute empirical L_Lgh
+        # we need to compare the lgh time u with L_Lgh * |u|
+        dot_true = np.einsum("tki,ti->tk", Lgh_true, u_cbf)
+        dot_est = np.einsum("tki,ti->tk", Lgh_est, u_cbf)
+        empirical_L_Lgh = np.abs(dot_true - dot_est) / delta_pos[:, None]
+        u_norm = np.linalg.norm(u_cbf, axis=1)
+        L_Lgh_est = L_Lgh_est * u_norm[:, None]
+
+        # create the figure
+        fig, axes = plt.subplots(2, num_barriers, figsize=(12, 10))
+        for i in range(num_barriers):
+            # Lfh and L_Lfh
+            axes[0, i].plot(t_control, empirical_L_Lfh[:, i], label="Empirical L_Lfh")
+            axes[0, i].plot(t_control, L_Lfh_est[:, i], label="Estimated L_Lfh")
+            axes[0, i].set_title(
+                f"Estimated L_Lfh and emprical L_Lfh over time [Barrier {i}]"
+            )
+            axes[0, i].grid(True)
+            axes[0, i].legend()
+            axes[0, i].set_xlabel("Time [s]")
+            axes[0, i].set_ylabel("Derivatives [-]")
+
+            # L_Lgh and Lgh
+            axes[1, i].plot(t_control, empirical_L_Lgh[:, i], label="Empirical L_Lgh")
+            axes[1, i].plot(t_control, L_Lgh_est[:, i], label="Estimated L_Lgh")
+            axes[1, i].set_title(f"L_Lgh and Lgh over time [Barrier {i}]")
+            axes[1, i].grid(True)
+            axes[1, i].legend()
+            axes[1, i].set_xlabel("Time [s]")
+            axes[1, i].set_ylabel("Derivatives [-]")
+
+        plt.savefig(filename)
+        logger.success(f"Lie derivatives and Lipschitz constants saved: {filename}")
+
     def create_full_plot(self, planner, filename=None):
         # convert lists to array
         self.data.to_numpy()
@@ -451,8 +603,8 @@ class VisualizeSimulation:
         # function save figure if there is a filename
         num_colom_state = self.data.robot_pos.shape[1] + self.data.robot_vel.shape[1]
         num_coloms_control = (
-            self.data.u_nominal.shape[1] + 1
-        )  # +1 for the safety margin
+            self.data.u_nominal.shape[1] + 4
+        )  # +4 for the safety margin, noise, k and v_max
         num_colom_cbfs = self.data.h_true.shape[1]
         num_costmaps = 5
 
@@ -484,6 +636,9 @@ class VisualizeSimulation:
 
         # Row 1: Plot control input (single subplot spanning all columns)
         self.plot_control_input(axes=axes[1])
+        self.plot_noise(ax=axes[1][num_coloms_control - 4])
+        self.plot_k(ax=axes[1][num_coloms_control - 3])
+        self.plot_v_max(ax=axes[1][num_coloms_control - 2])
         self.plot_safety_margin(ax=axes[1][num_coloms_control - 1])
 
         # remove unused subplots

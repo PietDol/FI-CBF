@@ -8,6 +8,7 @@ import json
 from perception import Sensor
 from robot import Robot
 from env_generator_config import EnvGeneratorConfig
+import time
 
 
 class EnvGenerator:
@@ -43,7 +44,7 @@ class EnvGenerator:
         except FileExistsError:
             logger.error(f"Directory already exists: {self.config.work_dir}")
             logger.info("Try similar forlder name")
-            for i in range(10):
+            for i in range(100):
                 try:
                     new_work_dir = f"{self.config.work_dir}_{i+1}"
                     os.makedirs(f"{new_work_dir}/simulation_results", exist_ok=False)
@@ -297,7 +298,9 @@ class EnvGenerator:
         )
         return []
 
-    def _generate_env_elements(self, loaded_env_dir: str = None):
+    def _generate_env_elements(
+        self, loaded_env_dir: str = None, env_folder: str = None
+    ):
         if loaded_env_dir is None:
             # generate the robot object
             robot_x = np.round(random.uniform(-self.x_range, self.x_range), 2)
@@ -357,6 +360,8 @@ class EnvGenerator:
             cbf_switch_velocity_thres=self.config.cbf_switch_velocity_thres,
             cbf_switch_control_diff_thres=self.config.cbf_switch_control_diff_thres,
             cbf_switch_nominal_control_mag=self.config.cbf_switch_nominal_control_mag,
+            cbf_confidence_config=self.config.cbf_confidence_config,
+            cbf_percentile=self.config.cbf_percentile,
             control_fps=self.config.control_fps,
             state_estimation_fps=self.config.state_estimation_fps,
             goal_tolerance=self.config.goal_tolerance,
@@ -366,6 +371,7 @@ class EnvGenerator:
             initial_state=initial_state,
             sensors=sensors,
             obstacles=obstacles,
+            env_folder=env_folder,
         )
 
         # add robot to obstacles
@@ -378,8 +384,10 @@ class EnvGenerator:
         return robot, obstacles, sensors
 
     @logger.catch
-    def _run_env(self, env_folder, loaded_env_dir=None):
-        robot, obstacles, sensors = self._generate_env_elements(loaded_env_dir)
+    def _run_env(self, env_folder, experiment_mode: int, loaded_env_dir=None):
+        robot, obstacles, sensors = self._generate_env_elements(
+            loaded_env_dir, env_folder
+        )
 
         # this is the part where you can change things to see what happens, e.g. add sensors, change fps
         # robot.perception.add_sensor(Sensor(sensor_position=np.array([4, 1])))
@@ -399,9 +407,14 @@ class EnvGenerator:
         )
 
         # run the simulation
+        start = time.time()
         sim_output = robot.run_simulation(
-            sim_time=self.config.max_duration_of_simulation, env_folder=env_folder
+            sim_time=self.config.max_duration_of_simulation,
+            env_folder=env_folder,
+            experiment_mode=experiment_mode,
         )
+        end = time.time()
+        logger.success(f"Simulation done in {end - start:.4f} seconds")
 
         # create plot
         env_number = env_folder.split("_")[-1]
@@ -420,14 +433,18 @@ class EnvGenerator:
         robot.plot(filenames)
         return sim_output
 
-    def run_env_from_file(self, env_file: str, env_folder: str):
+    def run_env_from_file(self, env_file: str, env_folder: str, experiment_mode: int):
         # run an environment from a file
         # create folder for this simulation
         env_folder = f"{self.config.work_dir}/simulation_results/{env_folder}"
         os.makedirs(env_folder, exist_ok=True)
 
         # run the env
-        succeed = self._run_env(env_folder=env_folder, loaded_env_dir=env_file)
+        succeed = self._run_env(
+            env_folder=env_folder,
+            loaded_env_dir=env_file,
+            experiment_mode=experiment_mode,
+        )
 
     def __call__(self):
         # check if work_dir is available
@@ -493,7 +510,7 @@ def main():
         costmap_size=np.array([20, 20]),
         grid_size=0.1,
         planner_mode="CBF infused A*",
-        noise_cost_gain=0.0,    # change for the cost to go through uncertain regions (5.0)
+        noise_cost_gain=0.0,  # change for the cost to go through uncertain regions (5.0)
         robot_width=1.0,
         robot_height=1.0,
         min_values_state=np.array([-10, -10, -1.5, -1.5]),
@@ -501,16 +518,26 @@ def main():
         min_sensor_noise=0.0,
         max_sensor_noise=0.1,
         magnitude_threshold=2.0,
-        cbf_state_uncertainty_mode="robust",    # probabilistic or robust
+        cbf_state_uncertainty_mode="robust",  # probabilistic or robust
         cbf_switch_velocity_thres=0.2,  # 0.2
-        cbf_switch_control_diff_thres=0.01, # 0.01
-        cbf_switch_nominal_control_mag=0.1, # 0.1
+        cbf_switch_control_diff_thres=0.01,  # 0.01
+        cbf_switch_nominal_control_mag=0.1,  # 0.1
+        cbf_confidence_config={
+            "levels": [1, 2, 3],
+            "vmax": [1.5, 1.0, 0.5],
+            "k": [4.0, 3.0, 2.0],
+            "sigma_thresholds": [0.03, 0.07],
+            "deltas": [
+                0.01,
+                0.01,
+            ],  # with of the sigmoid belonging to the corresponding sigma
+        },
         control_fps=50,
         state_estimation_fps=50,
         goal_tolerance=0.1,
-        Kp=0.5,
-        Kd=0.1,
-        u_min_max=np.array([-1000, 1000])
+        Kp=0.5,  # 0.5
+        Kd=0.2,  # 0.1
+        u_min_max=np.array([-1000, 1000]),
     )
     # config = EnvGeneratorConfig.from_file("./runs/baseline_hard/env_config.json")
 
@@ -521,10 +548,11 @@ def main():
     envs = EnvGenerator(config=config)
 
     # apply same environment for debugging
-    envs.run_env_from_file(
-        env_file="./runs/baseline_small_gap/simulation_results/loaded_env/env_data.json",
-        env_folder="loaded_env",
-    )
+    for i in range(1):
+        envs.run_env_from_file(
+            env_file="./runs/experiment/simulation_results/loaded_env/env_data.json",
+            env_folder=f"loaded_env_{i}",
+        )
 
     # apply the simulations
     # envs()

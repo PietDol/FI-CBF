@@ -1,0 +1,43 @@
+{
+    "start_pos": [
+        -5.0,
+        0.0
+    ],
+    "start_vel": [
+        0.0,
+        0.0
+    ],
+    "goal_pos": [
+        5.0,
+        0.0
+    ],
+    "obstacles": [
+        {
+            "type": "circle",
+            "center": [
+                0.0,
+                3.5
+            ],
+            "radius": 2.5,
+            "robot_radius": 0.7071
+        },
+        {
+            "type": "circle",
+            "center": [
+                0.0,
+                -3.5
+            ],
+            "radius": 2.5,
+            "robot_radius": 0.7071
+        }
+    ],
+    "sensors": [
+        {
+            "center": [
+                0.0,
+                0.0
+            ],
+            "max_distance": 10
+        }
+    ]
+}

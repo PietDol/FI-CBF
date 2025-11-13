@@ -1,0 +1,74 @@
+{
+    "number_of_simulations": 1,
+    "max_duration_of_simulation": 20,
+    "min_goal_distance": 15,
+    "work_dir": "./runs/debug",
+    "costmap_size": [
+        20,
+        20
+    ],
+    "robot_width": 1.0,
+    "robot_height": 1.0,
+    "min_number_of_obstacles": 5,
+    "max_number_of_obstacles": 10,
+    "max_obstacle_size": {
+        "circle": 3.0,
+        "rectangle": [
+            3.0,
+            3.0
+        ]
+    },
+    "planner_mode": "CBF infused A*",
+    "planner_alpha": 0.0,
+    "min_values_state": [
+        -10.0,
+        -10.0,
+        -1.5,
+        -1.5
+    ],
+    "max_values_state": [
+        10.0,
+        10.0,
+        1.5,
+        1.5
+    ],
+    "control_fps": 50,
+    "state_estimation_fps": 50,
+    "goal_tolerance": 0.1,
+    "Kp": 0.5,
+    "Kd": 0.2,
+    "u_min_max": [
+        -1000,
+        1000
+    ],
+    "grid_size": 0.1,
+    "cbf_state_uncertainty_mode": "robust",
+    "cbf_switch_velocity_thres": 0.2,
+    "cbf_switch_control_diff_thres": 0.01,
+    "cbf_switch_nominal_control_mag": 0.1,
+    "cbf_confidence_config": {
+        "vmax": [
+            3.0,
+            2.0,
+            1.0
+        ],
+        "k": [
+            4.0,
+            3.0,
+            2.0
+        ],
+        "sigma_thresholds": [
+            0.03,
+            0.07
+        ],
+        "deltas": [
+            0.01,
+            0.01
+        ]
+    },
+    "min_number_of_sensors": 1,
+    "max_number_of_sensors": 5,
+    "min_sensor_noise": 0.0,
+    "max_sensor_noise": 0.1,
+    "magnitude_threshold": 2.0
+}

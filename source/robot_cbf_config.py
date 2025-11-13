@@ -8,11 +8,12 @@ class RobotCBFConfig(CBFConfig):
         self.obstacles = obstacles
         self.num_obstacles = len(obstacles)
         init_safety_margin = (np.ones(self.num_obstacles), False)
-        super().__init__(n=4, m=2, relax_cbf=False, init_args=init_safety_margin)
+        super().__init__(n=4, m=2, relax_cbf=True, init_args=init_safety_margin)
 
     def f(self, z):
         px, py, vx, vy = z
-        return jnp.array([vx, vy, 0, 0])
+        # return jnp.array([vx, vy, 0, 0])
+        return jnp.zeros(4)
 
     def g(self, z):
         # return jnp.block([[jnp.zeros((2, 2))], [jnp.eye(2)]])

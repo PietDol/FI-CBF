@@ -1,0 +1,47 @@
+2025-06-26 16:57:34.628 | INFO     | __main__:__init__:25 - New simulation is started!
+2025-06-26 16:57:34.628 | INFO     | env_generator_config:log_information:92 - number_of_simulations: 1
+2025-06-26 16:57:34.628 | INFO     | env_generator_config:log_information:92 - max_duration_of_simulation: 20
+2025-06-26 16:57:34.628 | INFO     | env_generator_config:log_information:92 - min_goal_distance: 15
+2025-06-26 16:57:34.628 | INFO     | env_generator_config:log_information:92 - work_dir: ./runs/debug
+2025-06-26 16:57:34.628 | INFO     | env_generator_config:log_information:92 - costmap_size: [20 20]
+2025-06-26 16:57:34.628 | INFO     | env_generator_config:log_information:92 - robot_width: 1.0
+2025-06-26 16:57:34.633 | INFO     | env_generator_config:log_information:92 - robot_height: 1.0
+2025-06-26 16:57:34.633 | INFO     | env_generator_config:log_information:92 - min_number_of_obstacles: 5
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - max_number_of_obstacles: 10
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - max_obstacle_size: {'circle': 3.0, 'rectangle': [3.0, 3.0]}
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - planner_mode: CBF infused A*
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - planner_alpha: 0.0
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - min_values_state: [-10.  -10.   -1.5  -1.5]
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - max_values_state: [10.  10.   1.5  1.5]
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - control_fps: 50
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - state_estimation_fps: 50
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - goal_tolerance: 0.1
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - Kp: 0.5
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - Kd: 0.2
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - u_min_max: [-1000  1000]
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - grid_size: 0.1
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - cbf_state_uncertainty_mode: robust
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - cbf_switch_velocity_thres: 0.2
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - cbf_switch_control_diff_thres: 0.01
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - cbf_switch_nominal_control_mag: 0.1
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - cbf_confidence_config: {'vmax': [3.0, 2.0, 1.0], 'k': [4.0, 3.0, 2.0], 'sigma_thresholds': [0.03, 0.07], 'deltas': [0.01, 0.01]}
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - min_number_of_sensors: 1
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - max_number_of_sensors: 5
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - min_sensor_noise: 0.0
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - max_sensor_noise: 0.1
+2025-06-26 16:57:34.634 | INFO     | env_generator_config:log_information:92 - magnitude_threshold: 2.0
+2025-06-26 16:57:34.641 | SUCCESS  | env_generator_config:save_to_file:106 - Configuration saved to ./runs/debug/env_config.json
+2025-06-26 16:57:34.649 | SUCCESS  | __main__:load_env_information:146 - Environment data loaded: ./runs/experiment/simulation_results/loaded_env/env_data.json
+2025-06-26 16:57:37.641 | INFO     | perception:_estimate_cbf_lipschitz_constants:251 - L_Lfh per barrier: [0.99995195 0.99995195]
+2025-06-26 16:57:37.641 | INFO     | perception:_estimate_cbf_lipschitz_constants:252 - L_Lgh per barrier: [0.2996257 0.2996257]
+2025-06-26 16:57:37.642 | INFO     | perception:info:29 - Sensor 0: location [m]: [5. 0.], max sensor distance [m]: 10
+2025-06-26 16:57:37.782 | SUCCESS  | perception:__init__:82 - Perception magnitude costmap created
+2025-06-26 16:57:37.882 | SUCCESS  | perception:__init__:84 - Noise costmap created
+2025-06-26 16:57:38.016 | SUCCESS  | cbf_costmap:__init__:21 - CBF costmap created
+2025-06-26 16:57:38.109 | SUCCESS  | robot:__init__:133 - Robot created
+2025-06-26 16:57:38.905 | SUCCESS  | robot:plan:180 - Path planned and costmaps created.
+2025-06-26 16:57:38.905 | SUCCESS  | __main__:save_env_information:102 - Environment data saved: ./runs/debug/simulation_results/loaded_env_0/env_data.json
+2025-06-26 16:57:45.290 | SUCCESS  | visualization:save_data:69 - Visualization data saved: ./runs/debug/simulation_results/loaded_env_0/simulation_data
+2025-06-26 16:57:45.290 | WARNING  | robot:run_simulation:415 - Goal not reached after 20.019999999999662 seconds
+2025-06-26 16:57:48.634 | SUCCESS  | visualization:create_full_plot:563 - Visualization saved: ./runs/debug/simulation_results/loaded_env_0/simulation_fail.png
+2025-06-26 16:57:50.191 | SUCCESS  | visualization:create_full_plot:563 - Visualization saved: ./runs/debug/simulation_results/all_envs/0_fail.png

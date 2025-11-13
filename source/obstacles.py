@@ -239,8 +239,12 @@ class CircleObstacle(Obstacle):
         py = z[:, 1]
         delta = jnp.stack([px, py], axis=1) - self.pos_center  # (N, 2)
 
+        # norm
         dist = jnp.linalg.norm(delta, axis=1)
         buffer = self.robot_radius + self.radius + safety_margin
+        # squared
+        # dist = jnp.sum(delta**2, axis=1)
+        # buffer = (self.robot_radius + self.radius + safety_margin) ** 2
         h_values = dist - buffer
         return h_values  # shape (N,)
 

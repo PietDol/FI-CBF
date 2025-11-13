@@ -32,6 +32,8 @@ class EnvGeneratorConfig:
         cbf_switch_velocity_thres: float = None,
         cbf_switch_control_diff_thres: float = None,
         cbf_switch_nominal_control_mag: float = None,
+        cbf_confidence_config: dict = None,
+        cbf_percentile: float = None,
         control_fps: float = 50,
         state_estimation_fps: float = 50,
         goal_tolerance: float = 0.1,
@@ -75,6 +77,8 @@ class EnvGeneratorConfig:
         self.cbf_switch_velocity_thres = cbf_switch_velocity_thres
         self.cbf_switch_control_diff_thres = cbf_switch_control_diff_thres
         self.cbf_switch_nominal_control_mag = cbf_switch_nominal_control_mag
+        self.cbf_confidence_config = cbf_confidence_config
+        self.cbf_percentile = cbf_percentile
 
         # perception parameters
         self.min_number_of_sensors = min_number_of_sensors
