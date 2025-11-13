@@ -70,13 +70,8 @@ class Robot:
             magnitude_threshold=magnitude_threshold,
             num_samples_per_dim=4,  # normally take 4
             sensors=sensors,
-            # load_lipschitz_grid_path="./runs/experiment_fabric_success/simulation_results/fabric_experiment_0",
-            # load_lipschitz_grid_path="./runs/experiment_fake_success/simulation_results/fake_experiment_0",
-            # load_lipschitz_grid_path="./runs/experiment_cluttered_success/simulation_results/cluttered_experiment_0",
-            # load_lipschitz_grid_path="./runs/gap_experiments_debug/simulation_results/gap_experiment_0_seed_7",
-            # load_lipschitz_grid_path="./runs/experiments_debug/simulation_results/debug_experiment_3_seed_7",
-            # load_lipschitz_grid_path="./runs/gaps_exp/simulation_results/robot_0/gap_experiment_0_seed_7",
-            load_lipschitz_grid_path="./runs/exp_final_debug/simulation_results/gap_experiment_3_seed_7",
+            # load_lipschitz_grid_path="./runs/exp_final_debug/simulation_results/gap_experiment_3_seed_7",   # gap env
+            load_lipschitz_grid_path="./runs/E1_overall_performance/cluttered_env/simulation_results/cluttered_experiment_0_seed_7",   # cluttered env
         )
 
         # create cbf costmap
@@ -171,6 +166,8 @@ class Robot:
             self._percentile_velocity_dict[
                 f"{cbf_confidence_config['percentiles'][i]}"
             ] = cbf_confidence_config["percentile_velocity"][i]
+        self._cbf_confidence_config = cbf_confidence_config
+        self._switch_count = 0
 
         # log
         logger.success("Robot created")
@@ -543,8 +540,9 @@ class Robot:
                             self._active_percentile - PCT_STEP, PCT_FLOOR
                         )
                         self._ramp_counter = 0
+                        self._switch_count += 1
                         logger.debug(
-                            f"Switch to relaxed mode @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                            f"Switch to relaxed mode ({self._switch_count}) @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
                         )
 
             else:  # RELAXED
@@ -558,8 +556,9 @@ class Robot:
                     self._active_percentile = max(
                         self._active_percentile - PCT_STEP, PCT_FLOOR
                     )
+                    self._switch_count += 1
                     logger.debug(
-                        f"Further relax @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
+                        f"Further relax ({self._switch_count}) @ t={self._t_control:.2f}: percentile -> {self._active_percentile}"
                     )
 
                 # Exit when held long enough AND we’re away from the boundary AND making progress
@@ -586,8 +585,9 @@ class Robot:
                             self._active_percentile + PCT_STEP, self._cbf_percentile
                         )
                         self._ramp_counter = 0
+                        self._switch_count += 1
                         logger.debug(
-                            f"Ramp up percentile @ t={self._t_control:.2f}: -> {self._active_percentile}"
+                            f"Ramp up percentile ({self._switch_count}) @ t={self._t_control:.2f}: -> {self._active_percentile}"
                         )
 
             cbf_percentile = self._active_percentile
@@ -622,7 +622,13 @@ class Robot:
 
         # get the cbf percentile
         cbf_percentile, percentile_velocity, progress = self.get_cbf_percentile(
-            experiment_mode=experiment_mode, 
+            experiment_mode=experiment_mode,
+            T=self._cbf_confidence_config["T"],
+            HOLD=self._cbf_confidence_config["T_hold"],  
+            ETA_ENTER=self._cbf_confidence_config["eta_rel"],  
+            ETA_EXIT=self._cbf_confidence_config["eta_up"], 
+            H_ENTER=self._cbf_confidence_config["h_rel"],
+            H_EXIT=self._cbf_confidence_config["h_up"],
         )
 
         # set the maximum velocity as the minimum of the two mechanism

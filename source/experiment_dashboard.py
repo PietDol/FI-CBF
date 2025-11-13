@@ -225,10 +225,8 @@ if __name__ == "__main__":
     # df_full = pd.read_csv("./runs/validation/full_table.csv")
 
     # gaps experiment -> new relative degree
-    # df_summary = pd.read_csv("./runs/validation/validation_gaps_exp_new/summary.csv")
-    # df_full = pd.read_csv("./runs/validation/validation_gaps_exp_new/full_table.csv")
-    df_summary = pd.read_csv("./runs/validation/validation_new_eps_debug/summary.csv")
-    df_full = pd.read_csv("./runs/validation/validation_new_eps_debug/full_table.csv")
+    df_summary = pd.read_csv("./runs/validation/validation_gaps_exp/summary.csv")
+    df_full = pd.read_csv("./runs/validation/validation_gaps_exp/full_table.csv")
     validate_cfg = {
         "exp_folders": [
             # "./runs/fake_exp",
@@ -237,11 +235,10 @@ if __name__ == "__main__":
             # "./runs/gaps_exp_0_1",
             # "./runs/gaps_exp_0_2",
             # "./runs/gaps_exp_0_3",
-            # "./runs/gap_exp_new",
-            "./runs/experiments_debug_1"
+            "./runs/gaps_exp"
         ],
         "exp_colors": ["k", "g", "r", "b"],
-        "val_dir": "./runs/validation/validation_new_eps_debug",
+        "val_dir": "./runs/validation/validation_gaps_exp",
     }
     validate_experiments = ValidateExperiments(validate_cfg=validate_cfg)
     # validate_experiments.generate_report()
