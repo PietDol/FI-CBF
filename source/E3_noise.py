@@ -28,4 +28,4 @@ for i, (noise_dir, noise_value) in enumerate(zip(noise_dirs, noise_values)):
     w_min = calculate_w_min(
         x_max, close_circles[i]["x"], close_circles[i]["y"], close_circles[i]["r"]
     )
-    print(f"w_min @ {np.round(x_max, 2)}: {np.round(w_min, 2)}")
+    print(f"w_min @ {np.round(x_max, 2)}: {np.round(w_min, 4)}")

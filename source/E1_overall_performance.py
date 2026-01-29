@@ -263,6 +263,7 @@ def analyze_cbf_interruptions(
 # gap env
 def gap_env():
     # function for gap env metrics
+    d_robot = (2)**0.5
     print("- - - Gap environment - - -")
     # important parameters
     home_dir = "./runs/E1_overall_performance/gap_env/simulation_results"
@@ -342,7 +343,7 @@ def gap_env():
                     # u_cbf,
                     v_thresh=0.05,
                 )
-                print(f"Deadlock @ {deadlock_idx[1]}: {robot_pos[deadlock_idx[1]]}")
+                # print(f"Deadlock @ {deadlock_idx[1]}: {robot_pos[deadlock_idx[1]]}")
                 # get reports
                 u_change = analyze_cbf_interruptions(
                     u_nom[:deadlock_idx[1]+1],
@@ -366,13 +367,14 @@ def gap_env():
         
         # print wmin
         print(f"Robot {i}:")
-        print(f"Avg w_min: {np.round(np.mean(np.array(w_mins)), 2)}, {w_mins}")
+        print(f"Avg c_eff: {np.round(np.mean(np.array(w_mins))-d_robot, 2)}, {np.array(w_mins)-d_robot}")
         print(f"Avg ||u||: {np.round(np.mean(np.array(l1_u_change)), 2)}, {l1_u_change}")
         print(f"Avg ||u||/T: {np.round(np.mean(np.array(l1_u_change_time)), 2)}, {l1_u_change_time}")
         print(f"Avg frac_rate: {np.round(np.mean(np.array(frac_rate)), 3)}, {frac_rate}")
 
 def cluttered_env():
     # function for gap env metrics
+    d_robot = (2)**0.5
     print("- - - Cluttered environment - - -")
     # important parameters
     home_dir = "./runs/E1_overall_performance/cluttered_env/simulation_results"
@@ -435,7 +437,7 @@ def cluttered_env():
                     v_thresh=0.07,
                 )
                 print(deadlock_idx)
-                print(f"Deadlock @ {deadlock_idx[1]}: {robot_pos[deadlock_idx[1]]}")
+                # print(f"Deadlock @ {deadlock_idx[1]}: {robot_pos[deadlock_idx[1]]}")
                 # get reports
                 u_change = analyze_cbf_interruptions(
                     u_nom[:deadlock_idx[1]+1],
@@ -479,7 +481,7 @@ def cluttered_env():
         
         # print wmin
         print(f"Robot {i}:")
-        print(f"Avg w_min: {np.round(np.mean(np.array(w_mins)), 2)}, {w_mins}")
+        print(f"Avg c_eff: {np.round(np.mean(np.array(w_mins))-d_robot, 2)}, {np.array(w_mins)-d_robot}")
         print(f"Avg ||u||: {np.round(np.mean(np.array(l1_u_change)), 2)}, {l1_u_change}")
         print(f"Avg ||u||/T: {np.round(np.mean(np.array(l1_u_change_time)), 2)}, {l1_u_change_time}")
         print(f"Avg frac_rate: {np.round(np.mean(np.array(frac_rate)), 3)}, {frac_rate}")
